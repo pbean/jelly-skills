@@ -30,3 +30,15 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - A resolving session id now beats a runtime that is only flagged as
     present (`OPENCODE=1`, `PI_CODING_AGENT`).
   - Added `references/runtimes.md` with the support matrix.
+- Added a status-line sidecar for Copilot CLI, Antigravity and Cursor CLI,
+  which keep their context count in memory only.
+  - `ctxcheck statusline-tee --runtime R [-- cmd]` saves each status-line
+    payload as an atomic snapshot. It then runs the original command and
+    passes its output and exit code through, even when saving the snapshot
+    fails.
+  - `ctxcheck install-statusline cursor|copilot|antigravity
+    [--dry-run|--uninstall]` wraps the runtime's status-line command. It
+    edits only that one value, makes a timestamped backup, and is
+    idempotent. `--uninstall` puts the original back.
+  - Readers report `stale_seconds` and `measure_source: statusline`. They
+    refuse snapshots older than 15 minutes (exit 3).

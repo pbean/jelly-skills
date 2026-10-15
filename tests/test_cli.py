@@ -103,8 +103,6 @@ class NotImplementedTest(unittest.TestCase):
         ["--arm", "--role", "worker", "--label", "session 1 of /plan.md"],
         ["--disarm"],
         ["--hook"],
-        ["statusline-tee", "--runtime", "cursor", "--", "echo", "hi"],
-        ["install-statusline", "cursor", "--dry-run"],
         ["install-hook", "codex", "--uninstall"],
         ["launch-command", "--json"],
     )

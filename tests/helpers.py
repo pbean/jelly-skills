@@ -45,10 +45,12 @@ def clean_env(tmp: str | Path, **extra: str) -> dict:
 
 def run_ctxcheck(args: list[str], env: dict, cwd: str | Path | None = None,
                  stdin: str | None = None) -> subprocess.CompletedProcess:
+    # No stdin given: an empty one, never the test runner's.
+    feed = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
     return subprocess.run(
         [sys.executable, str(CTXCHECK), *args],
-        env=env, cwd=str(cwd) if cwd else env["HOME"], input=stdin,
-        capture_output=True, text=True, timeout=60)
+        env=env, cwd=str(cwd) if cwd else env["HOME"],
+        capture_output=True, text=True, timeout=60, **feed)
 
 
 def install_claude_transcript(home: str | Path, session: str = CLAUDE_SESSION,

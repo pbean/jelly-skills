@@ -9,8 +9,9 @@ description: >-
 license: MIT
 compatibility: >-
   Python 3.9+ (stdlib only). Measures Claude Code, Codex CLI, OpenCode (v1
-  and v2) and Pi sessions from their own session data; on any other runtime
-  ctxcheck reports that the session cannot be measured (exit 3).
+  and v2) and Pi sessions from their own session data, and Copilot CLI,
+  Antigravity and Cursor CLI through an opt-in status-line sidecar; on any
+  other runtime ctxcheck reports that the session cannot be measured (exit 3).
 metadata:
   author: pbean
   version: "0.1.0"
@@ -33,8 +34,9 @@ python3 <this skill's dir>/scripts/ctxcheck --json
 
 The output includes `runtime`, `used_tokens`, `context_window`,
 `window_source`, `used_percentage`, `remaining_tokens`, `model`, `session_id`,
-`transcript`, `measure_source` and, when a gate applies,
-`threshold_percentage` and `over_threshold`.
+`transcript`, `measure_source`, `stale_seconds` (the age of a status-line
+snapshot) and, when a gate applies, `threshold_percentage` and
+`over_threshold`.
 
 Pass a role to get a handoff gate that is derived from the window:
 
@@ -62,4 +64,6 @@ Check at boundaries, such as between phases or numbered edits, rather than
 after every step.
 
 Which runtimes are measured, and how, is in
-[references/runtimes.md](references/runtimes.md).
+[references/runtimes.md](references/runtimes.md). Copilot CLI, Antigravity
+and Cursor CLI need a one-time `ctxcheck install-statusline <runtime>`, which
+the user runs; see "Status-line setup" there.

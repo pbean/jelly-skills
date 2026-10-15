@@ -6,9 +6,16 @@ reads it back from its own session data.
 
 Usage:
     ctxcheck [--json] [--role coordinator|worker|planner] [--gate PCT]
-             [--window N] [--preset NAME] [--runtime auto|claude|codex|opencode|pi]
+             [--window N] [--preset NAME]
+             [--runtime auto|claude|codex|opencode|pi|copilot|antigravity|cursor]
              [--session ID] [--transcript PATH]
     ctxcheck --list-presets
+    ctxcheck statusline-tee --runtime R [-- <wrapped status-line cmd...>]
+    ctxcheck install-statusline cursor|copilot|antigravity [--dry-run|--uninstall]
+
+Copilot CLI, Antigravity and Cursor CLI are measured from a status-line
+sidecar: run install-statusline once, then keep the TUI on screen (snapshots
+older than 15 minutes are refused with exit 3).
 
 With --role, the gate is derived from the window (see --list-presets); --gate
 overrides it. With neither, usage is reported with no threshold.
@@ -28,6 +35,8 @@ Env:
     XDG_DATA_HOME     OpenCode's opencode.db lives under it (default ~/.local/share)
     PI_CODING_AGENT_DIR, PI_CODING_AGENT_SESSION_DIR
                       Pi's agent and session dirs (default ~/.pi/agent[/sessions])
+    COPILOT_HOME      Copilot CLI's config dir (default ~/.copilot)
+    CURSOR_CONFIG_DIR Cursor CLI's config dir (default ~/.cursor)
 """
 
 from __future__ import annotations
@@ -40,7 +49,7 @@ from typing import NoReturn, Sequence
 
 from . import (EXIT_ERROR, EXIT_GATE_EXCEEDED, EXIT_OK, EXIT_UNMEASURABLE,
                CtxError, Unmeasurable)
-from . import gates, runtime
+from . import gates, install, runtime, tee
 
 # Verbs the CLI shape reserves for later phases. They parse now so that
 # callers and docs can be written against the final shape.
@@ -59,16 +68,14 @@ class _Parser(argparse.ArgumentParser):
 def _subcommand_parsers() -> dict[str, argparse.ArgumentParser]:
     subs: dict[str, argparse.ArgumentParser] = {}
 
-    p = _Parser(prog="ctxcheck statusline-tee",
-                description="wrap a status-line command and keep a sidecar snapshot (P3)")
-    p.add_argument("--runtime", required=True, choices=ALL_RUNTIMES)
-    p.add_argument("wrapped", nargs=argparse.REMAINDER, help="-- <wrapped cmd...>")
-    subs["statusline-tee"] = p
-
-    for verb, what in (("install-statusline", "install the status-line sidecar (P3)"),
-                       ("install-hook", "install the post-tool backstop (P4-P6)")):
+    # statusline-tee parses its own arguments (tee.main): it must run the
+    # wrapped command even when they are wrong.
+    for verb, what, choices in (
+            ("install-statusline", "wrap the runtime's status line in statusline-tee",
+             tuple(sorted(install.STATUSLINE_TARGETS))),
+            ("install-hook", "install the post-tool backstop (P4-P6)", ALL_RUNTIMES)):
         p = _Parser(prog=f"ctxcheck {verb}", description=what)
-        p.add_argument("target_runtime", metavar="RUNTIME", choices=ALL_RUNTIMES)
+        p.add_argument("target_runtime", metavar="RUNTIME", choices=choices)
         g = p.add_mutually_exclusive_group()
         g.add_argument("--dry-run", action="store_true")
         g.add_argument("--uninstall", action="store_true")
@@ -219,7 +226,7 @@ def measure(a: argparse.Namespace) -> int:
         "session_id": session,
         "transcript": str(res.path),
         "measure_source": res.measure_source,
-        "stale_seconds": None,
+        "stale_seconds": usage.stale_seconds,
         "threshold_percentage": gate,
         "threshold_source": gate_src if gate is not None else None,
         "over_threshold": over if gate is not None else None,
@@ -230,6 +237,8 @@ def measure(a: argparse.Namespace) -> int:
     else:
         line = (f"context: {usage.used:,}/{window:,} tokens "
                 f"({pct}% used, {window_src}, {res.backend.name})")
+        if usage.stale_seconds is not None:
+            line += f"\nfrom the status line, {usage.stale_seconds:.0f} s ago"
         if gate is not None:
             line += f"\nthreshold {gate}% ({gate_src}): " + (
                 "EXCEEDED - stop at a safe point and hand off" if over else "ok")
@@ -239,10 +248,14 @@ def measure(a: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] == "statusline-tee":
+        return tee.main(args[1:])
     subs = _subcommand_parsers()
     try:
         if args and args[0] in subs:
-            subs[args[0]].parse_args(args[1:])
+            sa = subs[args[0]].parse_args(args[1:])
+            if args[0] == "install-statusline":
+                return install.install_statusline(sa.target_runtime, sa.dry_run, sa.uninstall)
             return _die(f"{args[0]}: {NOT_IMPLEMENTED}")
 
         a = _parser().parse_args(args)
