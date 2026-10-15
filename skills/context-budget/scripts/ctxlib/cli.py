@@ -41,7 +41,7 @@ Exit codes:
 Env:
     CTXCHECK_WINDOW   window size in tokens; overrides discovery
     CTXCHECK_PRESET   preset used when nothing is discovered
-    CTXCHECK_HOME     state dir (default $XDG_STATE_HOME/jelly-skills/ctxcheck)
+    CTXCHECK_HOME     state dir (default ${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck)
     CODEX_HOME        Codex state root (default ~/.codex)
     XDG_DATA_HOME     OpenCode's opencode.db lives under it (default ~/.local/share)
     PI_CODING_AGENT_DIR, PI_CODING_AGENT_SESSION_DIR

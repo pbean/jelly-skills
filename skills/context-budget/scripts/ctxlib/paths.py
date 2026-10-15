@@ -1,8 +1,8 @@
 """Where ctxcheck keeps mutable state.
 
     ${CTXCHECK_HOME:-${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck}
-        markers/<session>.json                 armed sessions (P4)
-        statusline/<runtime>/<session>.json    status-line sidecar snapshots (P3)
+        markers/<session>.json                 armed sessions
+        statusline/<runtime>/<session>.json    status-line sidecar snapshots
 
 State never lives next to the code: `npx skills` installs copies that are
 replaced on every reinstall.

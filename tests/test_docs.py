@@ -249,7 +249,7 @@ ORCA_NAMES = re.compile(r"\borca\b|orca-ide|\borchestration\b|consumer_fenced|ru
 
 
 class CoordinatorSuccessionDocsTest(unittest.TestCase):
-    """P9: the handoff doctrine is backend-neutral, dispatch-orca §9 holds the
+    """The handoff doctrine is backend-neutral, dispatch-orca §9 holds the
     Orca half, and run-plan's ctxcheck calls are real ones."""
 
     def test_handoff_names_no_orca_commands(self):

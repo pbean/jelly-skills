@@ -7,9 +7,19 @@ and each skill is versioned independently in its `SKILL.md` metadata.
 
 ## [Unreleased]
 
-### context-budget
+## 2026-10-15 — context-budget 1.0.0, run-plan 1.2.0, session-plan 1.1.0
 
-- Added the `context-budget` skill (0.1.0) with `ctxcheck`, built on the `ctxlib` package.
+The context-budget program: agent sessions measure their own context, phase
+workers and the planner hand off before they degrade, and the run-plan
+coordinator hands off to a successor coordinator.
+
+### context-budget 1.0.0
+
+First release of the new skill.
+
+#### Added
+
+- The `context-budget` skill with `ctxcheck`, built on the `ctxlib` package.
   - It reads Claude Code and Codex CLI sessions.
   - It derives per-role handoff gates (coordinator, worker, planner) from the
     window.
@@ -18,7 +28,7 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     TUI.
   - The Claude window comes from env and model rules.
   - Includes a stdlib `unittest` suite under `tests/`.
-- Added OpenCode (v1 and v2) and Pi backends to `ctxcheck`.
+- OpenCode (v1 and v2) and Pi backends to `ctxcheck`.
   - OpenCode reads `opencode.db` read-only. On v2 it skips usage before the
     last completed compaction. On v1, which sets no session id, it uses the
     newest session for the cwd. The window comes from OpenCode's models.dev
@@ -30,7 +40,7 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - A resolving session id now beats a runtime that is only flagged as
     present (`OPENCODE=1`, `PI_CODING_AGENT`).
   - Added `references/runtimes.md` with the support matrix.
-- Added a status-line sidecar for Copilot CLI, Antigravity and Cursor CLI,
+- A status-line sidecar for Copilot CLI, Antigravity and Cursor CLI,
   which keep their context count in memory only.
   - `ctxcheck statusline-tee --runtime R [-- cmd]` saves each status-line
     payload as an atomic snapshot. It then runs the original command and
@@ -42,7 +52,7 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     idempotent. `--uninstall` puts the original back.
   - Readers report `stale_seconds` and `measure_source: statusline`. They
     refuse snapshots older than 15 minutes (exit 3).
-- Added arming and a post-tool backstop for Claude Code and Codex CLI.
+- Arming and a post-tool backstop for Claude Code and Codex CLI.
   - `ctxcheck --arm --role R --label "..." [--gate PCT] [--window N]`
     records the session's role, gate (derived per role unless given) and
     measured window in `markers/<session>.json`. `--disarm` removes it.
@@ -57,7 +67,7 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - Codex: `ctxcheck install-hook codex [--dry-run|--uninstall]` appends a
     `PostToolUse` group to `$CODEX_HOME/hooks.json`. Uninstall leaves every
     other entry byte-identical; the hook must be trusted in `/hooks`.
-- Added opt-in backstops for Cursor CLI, Copilot CLI and Antigravity.
+- Opt-in backstops for Cursor CLI, Copilot CLI and Antigravity.
   - `ctxcheck install-hook cursor|copilot|antigravity [--dry-run|--uninstall]`
     edits `~/.cursor/hooks.json` (`postToolUse`), creates
     `$COPILOT_HOME/hooks/ctxcheck.json` (`postToolUse`), or adds a hook named
@@ -70,7 +80,7 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     prints `{}` when silent. Antigravity warns only on `PreInvocation`
     (`--event`), because `PostToolUse` must return `{}`.
   - These are built from the documented contracts and are not live-verified.
-- Added opt-in backstops for OpenCode (v1 and v2) and Pi.
+- Opt-in backstops for OpenCode (v1 and v2) and Pi.
   - `ctxcheck install-hook opencode|pi [--dry-run|--uninstall]` copies a
     dependency-free TypeScript file (`scripts/assets/`) into
     `~/.config/opencode/plugins/` or `~/.pi/agent/extensions/` as
@@ -87,7 +97,7 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - `references/runtimes.md` now lists the install command and
     live-verification state for every runtime. These two are not
     live-verified.
-- Added the worker and planner doctrine (0.2.0).
+- The worker and planner doctrine.
   - The SKILL.md body covers roles and who arms which, arming at the start,
     checks at boundaries only, exit 3 ("no context budget on this runtime"),
     disarming on every exit, the backstop per runtime, and the gate table.
@@ -103,7 +113,7 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - `tests/test_docs.py` checks that every `ctxcheck` flag and subcommand
     named in `skills/**/*.md` exists, that each SKILL.md frontmatter has the
     required keys, and that relative links in SKILL.md files resolve.
-- Added `ctxcheck launch-command [--json]`. It prints the command line that
+- `ctxcheck launch-command [--json]`. It prints the command line that
   starts a fresh session of the agent CLI running this one. It walks the
   process ancestry (Linux `/proc`, macOS `ps`) to the nearest Claude Code,
   Codex, OpenCode, Pi, Cursor, Copilot or Antigravity process, run directly
@@ -114,10 +124,12 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   3 when no ancestor is an agent CLI. `tests/test_launch.py` covers the
   stripping per runtime and the walk over an injected process table.
 
-### run-plan
+### run-plan 1.2.0
+
+#### Changed
 
 - Modernized the Orca dispatch for Orca 1.4.219+, and phase continuations
-  now run as new tasks (1.1.0).
+  now run as new tasks.
   - `references/dispatch-orca.md` §§0-8 were rewritten. A phase runs as legs,
     and each leg is its own task, created lazily just before its dispatch
     (nothing is pre-built as a chain). The start receipt's `turnStart` drives
@@ -149,8 +161,10 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     verb named in run-plan's docs is listed, and not retired, in
     `orca-ide`'s help. It skips that check when `orca-ide` is absent. It
     also checks the wrapper's ctxcheck flags.
-- The coordinator measures itself and hands off to a successor automatically
-  (1.2.0).
+#### Added
+
+- The coordinator measures itself and hands off to a successor
+  automatically.
   - SKILL.md has a "Context budget" section. The coordinator invokes
     context-budget (Claude Code), arms as `--role coordinator` (with
     `coordinator_handoff_pct` as `--gate` when set), checks at every boundary
@@ -184,16 +198,29 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     command, that §9's verbs exist and name their terminal, and that every
     ctxcheck call in run-plan's docs is a real one.
 
-### session-plan
+### session-plan 1.1.0
 
-- The planner measures itself (1.1.0). It invokes context-budget at the
+#### Added
+
+- The planner measures itself. It invokes context-budget at the
   start (Claude Code), arms as `--role planner` as its first action (allowed
   in plan mode: ctxcheck writes only its own state dir), checks after
   exploration, after the design settles and before writing session prompts,
   saves and stops when over budget, resumes from a planning continuation
   without re-asking settled decisions, and disarms after the handoff.
 
-### README
+### Repository
 
-- Added context-budget to the skills table; install all three skills
-  together.
+#### Added
+
+- `tests/`: a stdlib `unittest` suite (no third-party dependencies) with
+  synthetic fixtures, run with `python3 -m unittest discover -s tests -v`.
+- `tests/e2e/`: a live smoke-test kit. `smoke-plan.md` is a 2-phase dummy
+  plan with both handoff gates at 1%, and `README.md` walks through running
+  it in a scratch repo: one continuation leg as a new task, one coordinator
+  succession, and cleanup.
+
+#### Changed
+
+- README: context-budget in the skills table and the agent support table;
+  install all three skills together; new "Context budgets" section.

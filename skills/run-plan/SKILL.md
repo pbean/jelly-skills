@@ -125,8 +125,9 @@ the runs directory `<runs dir>` containing:
 - Coordinator succession (`references/coordinator-handoff.md`): `coordinator_generation`
   (1 for the coordinator the user started), `takeover_pending` (the generation being
   handed to, else null), `takeover` (`{generation, at}`, written by the successor right
-  after it rebinds the run), and `handoffs[]` (one `{generation, at_pct, after_phase, at,
-  successor_terminal, outcome}` per handoff).
+  after it rebinds the run), and `handoffs[]` (one `{generation, at_pct, after_phase, at}` per handoff, plus
+  `successor_terminal` once the successor's terminal exists and `outcome: failed` if the
+  succession fails).
 - `run-log.md` — append-only: dispatches, retries, backfills, normalization summary.
 
 **Every `run-state.json` write is atomic**: write a temp file in the same directory, then

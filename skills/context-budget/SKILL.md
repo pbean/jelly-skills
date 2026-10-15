@@ -14,7 +14,7 @@ compatibility: >-
   other runtime ctxcheck reports that the session cannot be measured (exit 3).
 metadata:
   author: pbean
-  version: "0.2.0"
+  version: "1.0.0"
 hooks:
   PostToolUse:
     - matcher: "Bash"
@@ -192,9 +192,11 @@ With no `--role`, no `--gate` and no marker, ctxcheck only reports usage.
 ## Reading the report
 
 `ctxcheck --json` prints `runtime`, `role`, `used_tokens`, `context_window`,
-`window_source`, `used_percentage`, `remaining_tokens`, `model`,
+`window_source`, `used_percentage`, `remaining_percentage`,
+`remaining_tokens`, `model`,
 `session_id`, `transcript`, `measure_source` (`transcript` or `statusline`),
 `stale_seconds` (the age of a status-line snapshot), and the threshold keys
 `threshold_percentage`, `threshold_source` and `over_threshold` (null when no
-gate applies). Other flags: `--runtime R` skips detection, `--session ID` and
+gate applies). When the session can't be measured (exit 3), it prints
+`{runtime, measurable: false, message, tried}` instead. Other flags: `--runtime R` skips detection, `--session ID` and
 `--transcript PATH` point at a specific session.

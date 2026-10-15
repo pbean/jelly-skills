@@ -658,7 +658,7 @@ def install_hook(runtime: str, dry_run: bool = False, uninstall: bool = False) -
         raise CtxError("Claude needs no installer: invoking the context-budget skill "
                        "registers its PostToolUse hook for the rest of the session")
     if runtime not in HOOK_TARGETS:
-        raise CtxError(f"install-hook {runtime}: not implemented in this version "
+        raise CtxError(f"install-hook {runtime}: no backstop for this runtime "
                        f"(supported: {', '.join(sorted({*HOOK_TARGETS, *ASSET_TARGETS}))})")
     target = HOOK_TARGETS[runtime]
     if runtime == "antigravity":

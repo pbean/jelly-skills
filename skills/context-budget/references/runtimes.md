@@ -8,7 +8,7 @@ so they are measured from a status-line sidecar (see "Status-line setup").
 A runtime wins only if its session data actually resolves. Environment
 variables leak into child agents, so a variable on its own proves nothing.
 A resolving session id beats a runtime that only signals it is running
-(`OPENCODE=1`, `PI_CODING_AGENT`, `CURSOR_AGENT=1`). Such a runtime is used through its cwd
+(`OPENCODE=1`, `PI_CODING_AGENT` or `PI_SESSION_FILE`, `CURSOR_AGENT=1`). Such a runtime is used through its cwd
 fallback, and only after every session id has been tried.
 
 If nothing resolves, `ctxcheck` exits 3. Pass `--runtime R` to skip detection.
@@ -146,8 +146,9 @@ coordinator or a hand-run planner session.
 A backstop is a post-tool hook that runs `ctxcheck --hook`. It stays silent
 unless the session is armed (`ctxcheck --arm`) and over its gate. Then it adds
 one role-specific instruction to the model's context, and it repeats the
-warning only after usage climbs another 5 points. Every error exits 0 with no
-output, so a broken backstop never blocks a tool call.
+warning only after usage climbs another 5 points. Every error exits 0 and
+prints only the runtime's silent answer (nothing for Claude Code and Codex,
+`{}` for the others), so a broken backstop never blocks a tool call.
 
 **Claude Code: automatic.**
 - The `context-budget` SKILL.md frontmatter declares a `PostToolUse` hook
@@ -262,7 +263,7 @@ diff and writes nothing. Before writing, each installer copies the file to
 | Claude Code | none | none | The skill's frontmatter hook, registered when the skill is invoked | The session ends | None |
 | Codex CLI | `ctxcheck install-hook codex` | `$CODEX_HOME/hooks.json` (default `~/.codex`) | Appends a `hooks.PostToolUse` group: matcher `Bash`, `{"type": "command", "command": "python3 <abs ctxcheck> --hook --runtime codex", "timeout": 10}` | `--uninstall` | **Yes:** run `/hooks` in Codex and trust the entry |
 | Cursor CLI | `ctxcheck install-hook cursor` | `~/.cursor/hooks.json`, created as `{"version": 1, ...}` when missing | Appends to `hooks.postToolUse`: `{"command": "python3 <abs ctxcheck> --hook --runtime cursor", "matcher": "Shell", "timeout": 10}` | `--uninstall`. A file it created keeps `{"version": 1}`. | None for user hooks. Cursor reloads the file on save. |
-| Copilot CLI | `ctxcheck install-hook copilot` | `$COPILOT_HOME/hooks/ctxcheck.json` (default `~/.copilot`), a file of its own | `{"version": 1, "hooks": {"postToolUse": [{"type": "command", "bash": "python3 <abs ctxcheck> --hook --runtime copilot", "timeoutSec": 10}]}}`, with no matcher | `--uninstall` deletes the file once nothing else is in it | None for user hooks ("workspace admission" is for repo hooks). Restart Copilot. |
+| Copilot CLI | `ctxcheck install-hook copilot` | `$COPILOT_HOME/hooks/ctxcheck.json` (default `~/.copilot`), a file of its own | `{"version": 1, "hooks": {"postToolUse": [{"type": "command", "bash": "python3 <abs ctxcheck> --hook --runtime copilot", "timeoutSec": 10}]}}`, with no matcher | `--uninstall`. Once nothing else is in the file, it is moved aside to `<file>.ctxcheck-<UTC stamp>.bak` rather than deleted. | None for user hooks ("workspace admission" is for repo hooks). Restart Copilot. |
 | OpenCode (v1, v2) | `ctxcheck install-hook opencode` | `${XDG_CONFIG_HOME:-~/.config}/opencode/plugins/ctxcheck-context-budget.ts` (auto-loaded, no `opencode.json` entry) | The whole file, from `scripts/assets/opencode-plugin.ts` | `--uninstall` deletes the file | None. Restart OpenCode. |
 | Pi | `ctxcheck install-hook pi` | `<agent dir>/extensions/ctxcheck-context-budget.ts` (`$PI_CODING_AGENT_DIR`, default `~/.pi/agent`; auto-loaded) | The whole file, from `scripts/assets/pi-extension.ts` | `--uninstall` deletes the file | None. Start a new session or `/reload`. |
 | Antigravity `agy` | `ctxcheck install-hook antigravity` | `~/.gemini/config/hooks.json`, the global customization root | A top-level hook named `ctxcheck`: `{"PreInvocation": [{"type": "command", "command": "python3 <abs ctxcheck> --hook --runtime antigravity --event PreInvocation", "timeout": 10}]}` | `--uninstall`. A foreign hook named `ctxcheck` is refused. `"enabled": false` is kept. | None documented. Start a new `agy` session. |

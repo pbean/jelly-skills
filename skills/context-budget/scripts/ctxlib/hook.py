@@ -7,10 +7,11 @@ role-specific instruction. It re-nags only after usage climbs RENAG_POINTS
 more percentage points, so one overage is not repeated on every tool call.
 
 Never fails loudly: a hook that errors on every tool call is worse than a hook
-that misses a warning, so every unexpected condition exits 0 with no output.
+that misses a warning, so every unexpected condition exits 0 and prints only
+the runtime's silent answer (nothing for Claude and Codex, `{}` for the rest).
 
-Runtimes are entries in RUNTIMES (input normalization + output shape); later
-versions add theirs there. Without --runtime the entry is inferred from the
+Runtimes are entries in RUNTIMES (input normalization + output shape); a new
+runtime adds its entry there. Without --runtime the entry is inferred from the
 payload's keys. `--event E` names the hook event for runtimes whose payload
 doesn't (Antigravity), so the installed command says which event it serves.
 

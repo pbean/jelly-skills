@@ -79,7 +79,7 @@ python3 <context-budget dir>/scripts/ctxcheck --arm --role planner --label "plan
 ```
 
 This is allowed in plan mode. `ctxcheck` writes only its own state dir (a
-marker under `~/.local/state/jelly-skills/ctxcheck/`), never the project, so
+marker under `${CTXCHECK_HOME:-${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck}/`), never the project, so
 arming is not a project edit. If it exits 3, this agent can't be measured:
 say "no context budget on this runtime" once and plan without checks. Then
 check with a plain `python3 <context-budget dir>/scripts/ctxcheck ; echo $?`
