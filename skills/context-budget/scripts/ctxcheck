@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""ctxcheck - report an agent session's own context-window usage.
+
+Thin entry point; the implementation lives in ctxlib/ next to this file. Always
+invoke as `python3 <abs path>/ctxcheck`: `npx skills` can drop exec bits.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from ctxlib.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(130)
