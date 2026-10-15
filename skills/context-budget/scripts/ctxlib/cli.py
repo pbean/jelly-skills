@@ -6,7 +6,7 @@ reads it back from its own session data.
 
 Usage:
     ctxcheck [--json] [--role coordinator|worker|planner] [--gate PCT]
-             [--window N] [--preset NAME] [--runtime auto|claude|codex]
+             [--window N] [--preset NAME] [--runtime auto|claude|codex|opencode|pi]
              [--session ID] [--transcript PATH]
     ctxcheck --list-presets
 
@@ -25,6 +25,9 @@ Env:
     CTXCHECK_PRESET   preset used when nothing is discovered
     CTXCHECK_HOME     state dir (default $XDG_STATE_HOME/jelly-skills/ctxcheck)
     CODEX_HOME        Codex state root (default ~/.codex)
+    XDG_DATA_HOME     OpenCode's opencode.db lives under it (default ~/.local/share)
+    PI_CODING_AGENT_DIR, PI_CODING_AGENT_SESSION_DIR
+                      Pi's agent and session dirs (default ~/.pi/agent[/sessions])
 """
 
 from __future__ import annotations
@@ -129,9 +132,12 @@ def _env_int(name: str) -> int | None:
 
 
 def resolve_window(window: int | None, preset: str | None, marker: dict | None,
-                   usage: runtime.Usage) -> tuple[int, str]:
+                   usage: runtime.Usage, implicit_preset: bool = True) -> tuple[int, str]:
     """Explicit input wins, then the marker, then what the session reports,
-    then a preset."""
+    then a preset. A backend that sets `implicit_preset = False` (Pi: its
+    models span every vendor, so no default is better than a wrong one) gets
+    a preset only when one is named via CTXCHECK_PRESET; otherwise the
+    session is unmeasurable."""
     if window:
         return window, "--window"
     env = _env_int("CTXCHECK_WINDOW")
@@ -143,7 +149,12 @@ def resolve_window(window: int | None, preset: str | None, marker: dict | None,
         return int(marker["contextWindow"]), "marker"
     if usage.window:
         return usage.window, usage.window_source or "session"
-    name = os.environ.get("CTXCHECK_PRESET") or gates.DEFAULT_PRESET
+    name = os.environ.get("CTXCHECK_PRESET")
+    if not name and not implicit_preset:
+        model = f" for model {usage.model}" if usage.model else ""
+        raise Unmeasurable(f"no context window known{model}; pass --window N "
+                           "or set CTXCHECK_WINDOW (or --preset / CTXCHECK_PRESET)")
+    name = name or gates.DEFAULT_PRESET
     if name not in gates.PRESETS:
         raise CtxError(f"unknown preset {name!r}; one of: {', '.join(gates.PRESETS)}")
     return gates.PRESETS[name][0], f"preset {name}"
@@ -168,20 +179,23 @@ def measure(a: argparse.Namespace) -> int:
     if a.gate is not None and a.gate <= 0:
         raise CtxError("--gate must be positive")
 
+    res = None
     try:
         res = runtime.resolve(a.runtime, a.session, a.transcript)
+        usage = res.backend.read(res.path)
+        session = res.session or res.backend.session_of(res.path)
+        marker = load_marker(session)
+        window, window_src = resolve_window(
+            a.window, a.preset, marker, usage,
+            getattr(res.backend, "implicit_preset", True))
     except Unmeasurable as e:
         if a.as_json:
-            print(json.dumps({"runtime": None, "measurable": False,
+            print(json.dumps({"runtime": res.backend.name if res else None,
+                              "measurable": False,
                               "message": str(e), "tried": e.tried}, indent=2))
         tried = "".join(f"\n  tried {t}" for t in e.tried)
         return _die(f"{e}{tried}", EXIT_UNMEASURABLE)
 
-    usage = res.backend.read(res.path)
-    session = res.session or res.backend.session_of(res.path)
-    marker = load_marker(session)
-
-    window, window_src = resolve_window(a.window, a.preset, marker, usage)
     role = a.role or (marker or {}).get("role")
     explicit = a.gate if a.gate is not None else (marker or {}).get("handoffPct")
     gate, gate_src = gates.resolve_gate(role, window, explicit)

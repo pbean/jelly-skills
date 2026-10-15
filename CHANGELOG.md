@@ -18,3 +18,15 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     TUI.
   - The Claude window comes from env and model rules.
   - Includes a stdlib `unittest` suite under `tests/`.
+- Added OpenCode (v1 and v2) and Pi backends to `ctxcheck`.
+  - OpenCode reads `opencode.db` read-only. On v2 it skips usage before the
+    last completed compaction. On v1, which sets no session id, it uses the
+    newest session for the cwd. The window comes from OpenCode's models.dev
+    data, then a preset.
+  - Pi walks the session tree from the leaf and ignores abandoned branches,
+    pre-compaction usage, and aborted or errored replies. The window comes
+    from Pi's model files or OpenCode's models.dev data. If neither has it,
+    ctxcheck exits 3 and asks for `--window` or `CTXCHECK_WINDOW`.
+  - A resolving session id now beats a runtime that is only flagged as
+    present (`OPENCODE=1`, `PI_CODING_AGENT`).
+  - Added `references/runtimes.md` with the support matrix.

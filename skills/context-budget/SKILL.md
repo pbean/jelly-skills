@@ -8,9 +8,9 @@ description: >-
   prompt tells you to check your context at a boundary.
 license: MIT
 compatibility: >-
-  Python 3.9+ (stdlib only). Measures Claude Code and Codex CLI sessions from
-  their own transcripts; on any other runtime ctxcheck reports that the
-  session cannot be measured (exit 3).
+  Python 3.9+ (stdlib only). Measures Claude Code, Codex CLI, OpenCode (v1
+  and v2) and Pi sessions from their own session data; on any other runtime
+  ctxcheck reports that the session cannot be measured (exit 3).
 metadata:
   author: pbean
   version: "0.1.0"
@@ -60,3 +60,6 @@ With no `--role` or `--gate`, ctxcheck only reports usage.
 
 Check at boundaries, such as between phases or numbered edits, rather than
 after every step.
+
+Which runtimes are measured, and how, is in
+[references/runtimes.md](references/runtimes.md).
