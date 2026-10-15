@@ -275,3 +275,110 @@ Rolling waits, re-issued in a loop until a terminal event:
 >
 > Never signal completion by writing a sentinel file or by going idle — `worker_done` is
 > the only completion signal the coordinator trusts.
+
+## 9. Coordinator succession
+
+The backend half of `coordinator-handoff.md`: that file says when and why, this section
+says which commands. Checked against `orca-ide` 1.4.219's `--help` and the installed app
+bundle on 2026-10-15. Every `terminal` verb below takes an explicit `--terminal <handle>`:
+without one, Orca targets the **active terminal of the cwd's worktree**, which may be some
+other agent's pane, not yours.
+
+**Am I inside an Orca terminal?** (handoff step 1.) Yes when `$ORCA_TERMINAL_HANDLE` is
+non-empty **and** this succeeds with `ok: true` and the same handle in
+`result.terminal.handle`:
+
+```
+<orca> terminal show --terminal "$ORCA_TERMINAL_HANDLE" --json
+```
+
+A `terminal_handle_stale` error, a missing variable or a mismatched handle means no: take
+the handoff fallback. Never probe with a bare `terminal show` (it answers for the worktree's
+active terminal, which can be another agent's).
+
+**Settle the inbox before the note** (handoff step 2). Acknowledge the batch you already
+processed (the one carrying the last `worker_done`) with a non-waiting check, and process
+whatever it returns. At a boundary with no worker in flight that is only stragglers, such
+as late heartbeats. Repeat until a check returns `count: 0`:
+
+```
+<orca> orchestration check --ack <delivery_id> --json
+```
+
+After the note is written, never pass `--ack` again (handoff step 4). An unacknowledged
+batch replays to whoever holds the Run next. This settling step is also what lets the
+takeover wait below block instead of returning a replay at once.
+
+**Launch the successor** (handoff step 6), from `run-config.cwd`. `--worktree active` means
+the Orca worktree enclosing the shell's cwd:
+
+```
+<orca> terminal create --worktree active --title "run-plan coordinator gen <G+1>" --command "<shell_command>" --json
+```
+
+- `<shell_command>` is `ctxcheck launch-command --json`'s `shell_command`, verbatim. Orca
+  types it into a login shell, so the agent's launcher defaults don't apply. That is why
+  the command is your own detected argv and never a bare agent name or a hand-built one.
+- Record `result.terminal.handle` as `<successor>` in `run-log.md` and in the
+  `handoffs[]` entry (`successor_terminal`).
+
+Wait for the agent's interface. A line typed into a booting TUI goes to a bare tty and is
+discarded when the TUI takes the screen:
+
+```
+<orca> terminal wait --terminal <successor> --for tui-idle --timeout-ms 60000 --json
+```
+
+A timeout still prints a normal result, so read `result.wait.satisfied`, not the exit
+code. On `false`, wait once more with `--timeout-ms 180000`. Still `false` → handoff
+step 8 (the one diagnostic read below).
+
+Then send **one line** (handoff step 6 has the text; it has no newline in it):
+
+```
+<orca> terminal send --terminal <successor> --text "<one line>" --enter --wait-submit 30 --json
+```
+
+- **Submitted**: `result.send.prompt.stages` contains `turn_started`.
+- `result.send.accepted: false` → read `send.refusedReason`, then handoff step 8.
+- `send.prompt.observation: permission` → a permission or trust dialog. That is handoff
+  step 8's dialog branch: tell the user, and don't re-send.
+- Only `input_accepted` (the 30 s ran out) → nothing was re-sent and nothing is lost.
+  Repeat once as `--retry-request <send.prompt.requestId> --wait-submit 60`, never as a
+  fresh `--text` send, which could submit the line twice.
+
+**Confirm the takeover** (handoff step 7). The successor rebinds with
+`<orca> orchestration run-use --id <run_id> --json` from its own terminal, the deliberate
+use of the rebinding §1 warns about. That fences you. Wait for it **without `--ack`**:
+
+```
+<orca> orchestration check --wait --types worker_done,escalation,question --timeout-ms 600000 --json
+```
+
+- **`consumer_fenced`** (any of "This mailbox consumer has been replaced", "This
+  coordinator terminal is no longer bound to Run …") or **`run_required`** ("No Run is
+  bound") → the takeover is confirmed. Re-read `run-state.json` for `takeover` to log the
+  generation, but don't wait for it.
+- **A batch comes back** (a straggler arrived) → don't process it and don't ack it; it
+  belongs to the successor. Re-read `run-state.json`: `takeover.generation == G+1` →
+  confirmed. Otherwise run `<orca> orchestration run-current --json` (non-consuming): a
+  null `run`, or a different one, means you were unbound → confirmed. Neither → pause
+  without consuming, `<orca> terminal wait --terminal <successor> --for exit --timeout-ms 120000 --json`
+  (a bounded pause: the successor isn't expected to exit), and repeat these two reads.
+  Stop once 600000 ms have passed since the send.
+- **The wait times out** with neither → handoff step 8.
+
+**The one diagnostic read** (handoff step 8). Exactly once, bounded, for diagnosis only,
+and only of the successor's terminal, never a worker's (§6):
+
+```
+<orca> terminal read --terminal <successor> --screen --limit 40 --json
+```
+
+Decide from it per handoff step 8: a dialog → tell the user; an empty composer on the
+agent's startup placeholder → the one re-send (the `terminal send` above, fresh, with
+`--wait-submit 30`), then the takeover wait once more.
+
+**If the succession failed**, leave the successor's terminal open and name `<successor>`
+to the user rather than closing it yourself. With `takeover_pending` cleared, a successor
+that wakes later stands down without touching the Run.

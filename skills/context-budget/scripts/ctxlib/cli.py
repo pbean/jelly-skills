@@ -17,6 +17,7 @@ Usage:
              [--dry-run|--uninstall]
     ctxcheck statusline-tee --runtime R [-- <wrapped status-line cmd...>]
     ctxcheck install-statusline cursor|copilot|antigravity [--dry-run|--uninstall]
+    ctxcheck launch-command [--json]
 
 Copilot CLI, Antigravity and Cursor CLI are measured from a status-line
 sidecar: run install-statusline once, then keep the TUI on screen (snapshots
@@ -59,11 +60,8 @@ from typing import NoReturn, Sequence
 
 from . import (EXIT_ERROR, EXIT_GATE_EXCEEDED, EXIT_OK, EXIT_UNMEASURABLE,
                CtxError, Unmeasurable)
-from . import gates, hook, install, markers, runtime, tee
+from . import gates, hook, install, launch, markers, runtime, tee
 
-# Verbs the CLI shape reserves for later phases. They parse now so that
-# callers and docs can be written against the final shape.
-NOT_IMPLEMENTED = "not implemented in this version"
 ALL_RUNTIMES = ("claude", "codex", "opencode", "pi", "cursor", "copilot", "antigravity")
 
 
@@ -93,7 +91,7 @@ def _subcommand_parsers() -> dict[str, argparse.ArgumentParser]:
         subs[verb] = p
 
     p = _Parser(prog="ctxcheck launch-command",
-                description="print the command that relaunches this agent (P9)")
+                description="print the command line that starts a fresh session of the agent CLI running this one (resume arguments and the initial prompt stripped); exit 3 when no ancestor process is an agent CLI")
     p.add_argument("--json", action="store_true", dest="as_json")
     subs["launch-command"] = p
     return subs
@@ -271,7 +269,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return install.install_statusline(sa.target_runtime, sa.dry_run, sa.uninstall)
             if args[0] == "install-hook":
                 return install.install_hook(sa.target_runtime, sa.dry_run, sa.uninstall)
-            return _die(f"{args[0]}: {NOT_IMPLEMENTED}")
+            return launch.main(sa.as_json)  # launch-command
 
         a = _parser().parse_args(args)
         if a.arm:

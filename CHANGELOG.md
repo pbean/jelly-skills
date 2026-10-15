@@ -103,6 +103,16 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - `tests/test_docs.py` checks that every `ctxcheck` flag and subcommand
     named in `skills/**/*.md` exists, that each SKILL.md frontmatter has the
     required keys, and that relative links in SKILL.md files resolve.
+- Added `ctxcheck launch-command [--json]`. It prints the command line that
+  starts a fresh session of the agent CLI running this one. It walks the
+  process ancestry (Linux `/proc`, macOS `ps`) to the nearest Claude Code,
+  Codex, OpenCode, Pi, Cursor, Copilot or Antigravity process, run directly
+  or through node, bun or deno (the outermost of a loader and its native
+  child). It strips session-resume arguments and the initial prompt per
+  runtime, from each CLI's verified flags, and keeps the launch posture.
+  Output is `{runtime, argv, shell_command, cwd, pid, stripped}`. It exits
+  3 when no ancestor is an agent CLI. `tests/test_launch.py` covers the
+  stripping per runtime and the walk over an injected process table.
 
 ### run-plan
 
@@ -139,6 +149,40 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     verb named in run-plan's docs is listed, and not retired, in
     `orca-ide`'s help. It skips that check when `orca-ide` is absent. It
     also checks the wrapper's ctxcheck flags.
+- The coordinator measures itself and hands off to a successor automatically
+  (1.2.0).
+  - SKILL.md has a "Context budget" section. The coordinator invokes
+    context-budget (Claude Code), arms as `--role coordinator` (with
+    `coordinator_handoff_pct` as `--gate` when set), checks at every boundary
+    with no worker in flight (before the next phase goes `[running]`, and
+    between continuation legs), and disarms on every exit. Step 0 routes a
+    pending takeover to the successor branch. run-state.json gains
+    `coordinator_generation`, `takeover_pending`, `takeover` and
+    `handoffs[]`, and the Exit states table a "Handed off" row.
+  - New `references/coordinator-handoff.md`, backend-neutral. The
+    predecessor finishes the last phase rather than hand off for it; settles
+    its inbox; writes a handoff note (phases, legs mid-continuation, failure
+    counters, regenerated phase files, unverified facts); records the
+    handoff atomically before launching; never acknowledges a delivery after
+    the note; disarms; launches the successor with its own detected command
+    line and one line of prompt; and confirms the takeover by being fenced or
+    by the successor's `takeover` record. On a dialog it tells the user and
+    doesn't re-send; on a swallowed line it re-sends once; otherwise it
+    re-arms, clears the pending takeover and asks the user. Outside a backend
+    terminal it stops and leaves the note for a manual successor. The
+    successor rebinds the run, acknowledges the takeover, skips settled
+    confirmations, reconciles with recorded state winning, arms, and resumes.
+  - `references/dispatch-orca.md` §9 "Coordinator succession" holds the Orca
+    commands: the `$ORCA_TERMINAL_HANDLE` + `terminal show` probe, `terminal
+    create --worktree active --command`, `terminal wait --for tui-idle`
+    (`wait.satisfied`), `terminal send --wait-submit 30` (`turn_started` in
+    `send.prompt.stages`, `--retry-request` on a timeout), the
+    `check --wait --timeout-ms 600000` takeover wait, and one bounded
+    `terminal read --screen`. Every `terminal` verb names its terminal
+    explicitly.
+  - `tests/test_docs.py` checks that the handoff doctrine names no Orca
+    command, that §9's verbs exist and name their terminal, and that every
+    ctxcheck call in run-plan's docs is a real one.
 
 ### session-plan
 

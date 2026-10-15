@@ -15,8 +15,9 @@ SKILLS = helpers.REPO / "skills"
 FLAG = re.compile(r"--[a-z][a-z0-9-]*")
 SUBCOMMAND = re.compile(r"[a-z]+(?:-[a-z]+)+")
 # A ctxcheck mention runs to the end of its code span or shell command.
-# run-plan's wrapper writes the path as a placeholder the runner fills in.
-MENTION = re.compile(r"(?:\bctxcheck\b[\"'>]?|<ABS_CTXCHECK>)([^;|&#`\n)]*)")
+# run-plan's wrapper writes the path as a placeholder the runner fills in,
+# and its SKILL.md as the path recorded in run-state.json.
+MENTION = re.compile(r"(?:\bctxcheck\b[\"'>]?|<ABS_CTXCHECK>|<ctxcheck_path>)([^;|&#`\n)]*)")
 # An Orca verb follows its command group: `<orca> orchestration worker-start`,
 # `orca-ide orchestration check`, or a bare `terminal read` in a code span.
 ORCA_VERB = re.compile(r"(?<![\w-])(orchestration|terminal)\s+([a-z][a-z0-9-]*)")
@@ -228,6 +229,91 @@ class OrcaVerbsTest(unittest.TestCase):
                 self.assertIn(verb, commands, f"orca-ide {group} has no verb {verb!r}")
                 self.assertFalse(commands[verb].startswith("Retired"),
                                  f"orca-ide {group} {verb} is retired")
+
+
+def _section(path: Path, heading: str) -> str:
+    text = path.read_text()
+    start = text.index(heading)
+    end = text.find("\n## ", start + 1)
+    return text[start:] if end == -1 else text[start:end]
+
+
+RUN_PLAN = SKILLS / "run-plan"
+HANDOFF = RUN_PLAN / "references" / "coordinator-handoff.md"
+DISPATCH = RUN_PLAN / "references" / "dispatch-orca.md"
+# Names that would tie the backend-neutral handoff doctrine to Orca.
+ORCA_NAMES = re.compile(r"\borca\b|orca-ide|\borchestration\b|consumer_fenced|run_required"
+                        r"|--ack\b|\b(?:run-(?:use|create|current|list|show)"
+                        r"|task-(?:create|list|update)|worker-[a-z]+|gate-[a-z]+)\b",
+                        re.IGNORECASE)
+
+
+class CoordinatorSuccessionDocsTest(unittest.TestCase):
+    """P9: the handoff doctrine is backend-neutral, dispatch-orca §9 holds the
+    Orca half, and run-plan's ctxcheck calls are real ones."""
+
+    def test_handoff_names_no_orca_commands(self):
+        text = HANDOFF.read_text()
+        self.assertEqual(ORCA_NAMES.findall(text), [])
+        # In code only: prose says "the successor's terminal is ...".
+        self.assertEqual([v for s in _code_snippets(text) for v in ORCA_VERB.findall(s)], [])
+
+    @unittest.skipIf(shutil.which("orca-ide") is None,
+                     "orca-ide is not installed; can't list Orca verbs")
+    def test_handoff_names_no_live_orca_verb(self):
+        text = HANDOFF.read_text()
+        for group in ("orchestration", "terminal"):
+            for verb in _orca_commands(group):
+                if "-" in verb:  # plain words (check, send, read) are prose too
+                    with self.subTest(verb=verb):
+                        self.assertNotRegex(text, rf"(?<![\w-]){re.escape(verb)}(?![\w-])")
+
+    def test_section_9_verbs(self):
+        section = _section(DISPATCH, "## 9. Coordinator succession")
+        _front, code, prose = _split(section)
+        verbs = {gv for snippet in [*code, *INLINE.findall(prose)]
+                 for gv in ORCA_VERB.findall(snippet)}
+        for want in (("terminal", "show"), ("terminal", "create"), ("terminal", "wait"),
+                     ("terminal", "send"), ("terminal", "read"), ("orchestration", "check"),
+                     ("orchestration", "run-use")):
+            self.assertIn(want, verbs)
+        if shutil.which("orca-ide") is None:
+            self.skipTest("orca-ide is not installed; verbs extracted but not checked")
+        for group, verb in sorted(verbs):
+            with self.subTest(verb=f"{group} {verb}"):
+                self.assertIn(verb, _orca_commands(group))
+
+    def test_section_9_terminal_verbs_name_their_terminal(self):
+        """Without --terminal, Orca targets the worktree's active terminal."""
+        section = _section(DISPATCH, "## 9. Coordinator succession")
+        _front, code, _prose = _split(section)
+        for line in code:
+            m = re.search(r"terminal (show|wait|send|read)\b", line)
+            if m:
+                with self.subTest(line=line.strip()):
+                    self.assertIn("--terminal", line)
+
+    def test_run_plan_ctxcheck_calls(self):
+        found = [(p, sub, flags) for p, sub, flags in mentions()
+                 if RUN_PLAN in p.parents]
+        subs = {sub for _p, sub, _f in found}
+        flags = set().union(*(f for _p, _s, f in found))
+        self.assertIn("launch-command", subs)
+        for flag in ("--arm", "--role", "--label", "--gate", "--disarm"):
+            self.assertIn(flag, flags)
+        main = set(FLAG.findall(_help()))
+        for path, sub, fl in found:
+            known = _subcommand_flags(sub) if sub else main
+            with self.subTest(file=path.name, sub=sub, flags=sorted(fl)):
+                if sub:
+                    self.assertTrue(_subcommand_exists(sub))
+                self.assertLessEqual(fl - {"--help"}, known)
+
+    def test_skill_md_wires_succession(self):
+        text = (RUN_PLAN / "SKILL.md").read_text()
+        for needle in ("--role coordinator", "takeover_pending", "coordinator_generation",
+                       "handoffs[]", "references/coordinator-handoff.md", "--disarm"):
+            self.assertIn(needle, text)
 
 
 def frontmatter(path: Path) -> tuple[dict, dict]:

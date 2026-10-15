@@ -98,20 +98,7 @@ class ListPresetsTest(unittest.TestCase):
             self.assertIn(word, r.stdout)
 
 
-class NotImplementedTest(unittest.TestCase):
-    CASES = (
-        ["launch-command", "--json"],
-    )
-
-    def test_reserved_verbs_parse_then_exit_1(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = helpers.clean_env(tmp)
-            for args in self.CASES:
-                with self.subTest(args=args):
-                    r = helpers.run_ctxcheck(args, env)
-                    self.assertEqual(r.returncode, 1)
-                    self.assertIn("not implemented in this version", r.stderr)
-
+class UsageErrorTest(unittest.TestCase):
     def test_usage_error_exits_1(self):
         with tempfile.TemporaryDirectory() as tmp:
             r = helpers.run_ctxcheck(["--role", "reviewer"], helpers.clean_env(tmp))

@@ -17,7 +17,7 @@ compatibility: >-
   (claude, codex, cursor, opencode, ...).
 metadata:
   author: pbean
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Run a plan
@@ -27,11 +27,38 @@ fresh session with a full context window. You are the **coordinator**. You never
 never write plan prose, and read repo files only to verify a specific claim. Your context is
 the run's scarcest resource — spend it on dispatch decisions, not on watching workers.
 
-If your own context degrades mid-run, stop cleanly at a phase boundary, summarize where the
-run stands, and tell the user to re-run this skill on the plan path in a fresh session
-(Claude Code: `/run-plan <plan path>`).
-**Resume is the handoff mechanism** — the plan's status tags plus the runs directory carry
-everything a successor needs.
+So you measure yourself, and when you go over budget you hand the run to a **successor
+coordinator** and stop ("Context budget" below). The plan's status tags plus the runs
+directory carry everything a successor needs.
+
+## Context budget
+
+You measure your own context with the sibling context-budget skill's `ctxcheck` (resolved
+in Step 0; below, `ctxcheck` means `python3 <ctxcheck_path>`).
+
+- **Arm at the start of the run**, once Step 0 has resolved the path (a successor arms in
+  its takeover steps instead). On Claude Code, invoke the context-budget skill first: that
+  registers its backstop hook. Then:
+
+  ```bash
+  python3 <ctxcheck_path> --arm --role coordinator --label "run-plan <plan basename>" --gate <coordinator_handoff_pct>
+  ```
+
+  Pass `--gate` only when run-config sets `coordinator_handoff_pct`; without it the gate
+  is derived from your window. **Exit 3** means this runtime can't be measured: say "no
+  context budget on this runtime" once and carry on without checks (no succession then).
+  With `ctxcheck_path: null`, skip all of this.
+- **Check at every boundary with no worker in flight**: after a phase's worker is
+  released, before loop step 2 flips the next phase to `[running]`, and after a
+  continuation leg is released, before the next leg's task is created. A plain
+  `python3 <ctxcheck_path> ; echo $?` uses what you armed. Never check mid-phase or on a
+  timer.
+- **Exit 10 → `references/coordinator-handoff.md`.** It finishes the last phase rather than
+  hand off for it, and otherwise hands off to a successor coordinator that the backend
+  launches in a fresh terminal with your own launch command, then confirms the takeover
+  and ends your turn.
+- **Disarm on every exit** (`python3 <ctxcheck_path> --disarm`; see Exit states), so the
+  backstop doesn't keep warning a session that no longer drives the run.
 
 ## Contracts to load first
 
@@ -42,6 +69,9 @@ everything a successor needs.
 2. `references/dispatch-orca.md` — the dispatch backend. Follow its §0: resolve the Orca
    binary and load the version-matched orchestration guide before any orchestration
    command. Never guess flags from memory.
+3. `references/coordinator-handoff.md` — **load on demand only**: when your boundary check
+   exits 10, or when Step 0 finds a takeover pending. It holds the predecessor's handoff
+   and the successor's takeover.
 
 ## Step 0 — Resolve the plan
 
@@ -62,6 +92,14 @@ skill's directory. Absolutize that path once, record it as `ctxcheck_path` in
 (plan-format.md §7). If the sibling skill is missing, warn the user **once** that phases
 will run without context budgets, record `ctxcheck_path: null`, and carry on. Never refuse
 a run over it.
+
+**Then check for a pending takeover.** If `<runs dir>/run-state.json` exists and has
+`takeover_pending` set, a previous coordinator handed this run off. Load
+`references/coordinator-handoff.md` and follow "Taking over" there: it decides from your
+prompt whether you are that generation. As the successor you skip Step 1's
+confirmations, never re-normalize or re-ask the run-config, and skip the Resume rule that
+a `[running]` tag means "confirm with the user"; you resume the loop where the handoff note
+and the records say. Otherwise, arm yourself (Context budget) and continue with Step 1.
 
 ## Step 1 — Normalize
 
@@ -84,6 +122,11 @@ the runs directory `<runs dir>` containing:
   `{leg, task_id, dispatch_id, outcome}`. Leg 1 is the phase's first worker; each
   continuation adds the next leg. A failed attempt retried on the same leg updates that
   leg's `dispatch_id`.
+- Coordinator succession (`references/coordinator-handoff.md`): `coordinator_generation`
+  (1 for the coordinator the user started), `takeover_pending` (the generation being
+  handed to, else null), `takeover` (`{generation, at}`, written by the successor right
+  after it rebinds the run), and `handoffs[]` (one `{generation, at_pct, after_phase, at,
+  successor_terminal, outcome}` per handoff).
 - `run-log.md` — append-only: dispatches, retries, backfills, normalization summary.
 
 **Every `run-state.json` write is atomic**: write a temp file in the same directory, then
@@ -127,7 +170,8 @@ For each phase N, from the first non-`[done]` phase to M, strictly sequentially:
    machine below.
 8. **On `PHASE-STATUS: complete`**: verify the plan — heading `[done]`, outcome record
    present. Backfill per plan-format.md §5 if the worker forgot (log the warning). Release
-   the worker, reset the phase's failure counter, log, and continue to phase N+1.
+   the worker, reset the phase's failure counter, log, then run the boundary check
+   (Context budget) and continue to phase N+1.
 
 ## Failure machine
 
@@ -150,8 +194,9 @@ the run stops there — later phases stay pending.
   `max_consecutive_failures` (default 3, aligned with the backend's own circuit breaker)
   → `[blocked]` with all attempts summarized. Stop. The counter resets on any success.
 - **`PHASE-STATUS: continuation-required`** → the phase stays `[running]`. Release the
-  worker and start leg g+1 as a **new task** depending on leg g's (dispatch-orca.md §2) —
-  a completed task can't be retried. Its phase file gets one extra orientation line:
+  worker, run the boundary check (Context budget), and start leg g+1 as a **new task**
+  depending on leg g's (dispatch-orca.md §2) — a completed task can't be retried. Its
+  phase file gets one extra orientation line:
   *"This is leg g+1 of this phase — a previous session did part of it and stopped
   cleanly. Read `<runs dir>/phase-N-continuation.md` first; it supersedes this prompt
   wherever they disagree. Its edits are uncommitted in the worktree; reconcile, do not
@@ -171,22 +216,26 @@ the run stops there — later phases stay pending.
 
 ## Exit states
 
-Every exit leaves the plan self-describing:
+Every exit leaves the plan self-describing. Every exit you take yourself also disarms
+your context budget (`python3 <ctxcheck_path> --disarm`), except a pause on a question,
+where you stay armed for when the run continues:
 
 | Exit | Plan file reads | Also |
 | --- | --- | --- |
-| Completed | every phase `[done]` + outcome records | workers released; summary printed |
-| Blocked | failing phase `[blocked]` + cause blockquote; later phases pending | workers released; resume instructions printed |
-| Paused on a question | phase `[running]`; plan untouched | worker alive, waiting on the reply |
+| Completed | every phase `[done]` + outcome records | workers released; disarmed; summary printed |
+| Blocked | failing phase `[blocked]` + cause blockquote; later phases pending | workers released; disarmed; resume instructions printed |
+| Paused on a question | phase `[running]`; plan untouched | worker alive, waiting on the reply; still armed |
+| Handed off | next phase pending (or a phase `[running]` mid-continuation) | disarmed before the successor launched; takeover confirmed; turn ended (`references/coordinator-handoff.md`) |
 | Coordinator death | current phase `[running]` (stale) | recovered by the resume path below |
 
 ## Resume
 
 Re-running this skill on a partly-run plan starts at the first non-`[done]` phase, reusing
 `run-state.json` (re-bind the backend run per dispatch-orca.md §1) and its recorded
-`ctxcheck_path` (re-resolve it per Step 0 if that file is gone). A `[running]` tag found
-at start means a prior coordinator died mid-phase: confirm with the user, then read that
-phase's `legs`. The last leg tells you where it stopped. Check its task and dispatch with
+`ctxcheck_path` (re-resolve it per Step 0 if that file is gone). A pending takeover in
+`run-state.json` is not this path: Step 0 routes it to the successor branch. Otherwise, a
+`[running]` tag found at start means a prior coordinator died mid-phase: confirm with the
+user, then read that phase's `legs`. The last leg tells you where it stopped. Check its task and dispatch with
 the backend before acting: a worker that is still live is waited on, not re-dispatched.
 Inspect `git log` / `git status` on the run-config branch to see what actually landed.
 
