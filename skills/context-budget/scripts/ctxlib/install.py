@@ -4,7 +4,10 @@
 (`ctxcheck --hook --runtime R`) to runtime R's hooks file: Codex, Cursor and
 Copilot after each tool call, Antigravity before each model call. Claude
 needs no installer: the context-budget skill's own frontmatter hook
-registers when the skill is invoked.
+registers when the skill is invoked. OpenCode and Pi have no shell hooks, so
+for them install-hook copies a plugin / extension (scripts/assets/) into the
+runtime's plugin directory under a ctxcheck-only file name, with this
+ctxcheck's absolute path filled in; see "Plugin and extension files" below.
 
 `ctxcheck install-statusline R [--dry-run|--uninstall]` points runtime R's
 status line at `ctxcheck statusline-tee`, wrapping whatever command was there:
@@ -152,12 +155,12 @@ def _string(text: str, node: jsonedit.Node) -> Optional[str]:
     return json.loads(text[node.start:node.end])
 
 
-def _write(path: Path, old: Optional[str], new: str) -> Optional[Path]:
+def _write(path: Path, old: Optional[str], new: str, backup_old: bool = True,
+           mode: int = 0o600) -> Optional[Path]:
     """Back up `path` (if it exists), then replace it atomically."""
     backup = None
     path.parent.mkdir(parents=True, exist_ok=True)
-    mode = 0o600
-    if old is not None:
+    if old is not None and backup_old:
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         backup = path.with_name(f"{path.name}.ctxcheck-{stamp}.bak")
         n = 1
@@ -165,6 +168,7 @@ def _write(path: Path, old: Optional[str], new: str) -> Optional[Path]:
             backup = path.with_name(f"{path.name}.ctxcheck-{stamp}-{n}.bak")
             n += 1
         shutil.copy2(path, backup)
+    if old is not None:
         mode = stat.S_IMODE(path.stat().st_mode)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
@@ -538,13 +542,124 @@ def plan_antigravity(text: Optional[str], path: Path,
     return jsonedit.set_value(text, ours, want), "updated the ctxcheck path in the hook command"
 
 
+# --- plugin and extension files (OpenCode, Pi) ----------------------------
+#
+# The asset in scripts/assets/ is copied whole, with PLACEHOLDER replaced by
+# this ctxcheck's absolute path (as a JS string literal). The file is ours
+# alone, so no backup is kept: install overwrites an older copy of it and
+# uninstall deletes it. A file at that path without OWNED_MARK is someone
+# else's and is never touched. Nothing else in the directory is read or
+# written (Pi's extensions dir also holds Orca's extensions).
+
+ASSETS = CTXCHECK.parent / "assets"
+PLACEHOLDER = "<CTXCHECK_PATH>"
+OWNED_MARK = "ctxcheck-managed:"  # in each asset's first-line comment
+
+
+class AssetTarget(NamedTuple):
+    path: Callable[[], Path]
+    asset: str
+    note: str
+
+
+# verified 2026-10-15: OpenCode auto-loads every *.ts / *.js file in plugin/ or
+# plugins/ under each config dir, with no opencode.json entry (v1.19.1
+# packages/opencode/src/config/plugin.ts L21 glob {plugin,plugins}/*.{ts,js};
+# v2.0.30 packages/core/src/plugin/source-directory.ts L7). Both versions'
+# docs name the global dir ~/.config/opencode/plugins/.
+OPENCODE_PLUGIN_DIRNAME = "plugins"
+
+
+def _opencode_plugin_dir() -> Path:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    root = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    return root / "opencode" / OPENCODE_PLUGIN_DIRNAME
+
+
+# verified 2026-10-15: Pi auto-loads *.ts / *.js files (and subdirs with an
+# index.ts) from <agent dir>/extensions/, default ~/.pi/agent, overridable by
+# PI_CODING_AGENT_DIR (earendil-works/pi v1.3.0 packages/coding-agent/
+# docs/extensions.md L44-48; src/config.ts).
+def _pi_extensions_dir() -> Path:
+    from .backends import pi
+    return pi.agent_dir() / "extensions"
+
+
+ASSET_TARGETS = {
+    "opencode": AssetTarget(
+        lambda: _opencode_plugin_dir() / "ctxcheck-context-budget.ts", "opencode-plugin.ts",
+        "Restart OpenCode so it loads the plugin. It warns only sessions armed with "
+        "`ctxcheck --arm` (LIVE-UNVERIFIED)."),
+    "pi": AssetTarget(
+        lambda: _pi_extensions_dir() / "ctxcheck-context-budget.ts", "pi-extension.ts",
+        "Start a new Pi session (or /reload) so it loads the extension. It warns only "
+        "sessions armed with `ctxcheck --arm` (LIVE-UNVERIFIED)."),
+}
+
+
+def render_asset(name: str) -> str:
+    import json
+    text = (ASSETS / name).read_text(encoding="utf-8")
+    # json.dumps of a str is a valid JS string literal; the asset holds the
+    # placeholder inside quotes, which the literal replaces.
+    return text.replace(f'"{PLACEHOLDER}"', json.dumps(str(CTXCHECK)))
+
+
+def plan_asset(runtime: str, text: Optional[str], path: Path,
+               uninstall: bool) -> tuple[Optional[str], str]:
+    """(new text, what happened); new text None: delete the file."""
+    if text is not None and OWNED_MARK not in text.split("\n", 1)[0]:
+        raise CtxError(f"{path} exists and was not written by ctxcheck; "
+                       "rename or remove it by hand")
+    if uninstall:
+        if text is None:
+            return "", "not installed"
+        return None, f"removed the ctxcheck {runtime} file"
+    want = render_asset(ASSET_TARGETS[runtime].asset)
+    if text == want:
+        return text, "already installed"
+    if text is None:
+        return want, f"added the ctxcheck {runtime} file"
+    return want, f"updated the ctxcheck {runtime} file"
+
+
+def install_asset(runtime: str, dry_run: bool = False, uninstall: bool = False) -> int:
+    target = ASSET_TARGETS[runtime]
+    path = target.path()
+    old = _read(path)
+    new, what = plan_asset(runtime, old, path, uninstall)
+    if new == (old if old is not None else ""):
+        print(f"{path}: {what}; nothing to change")
+        return EXIT_OK
+    if dry_run:
+        if new is None:
+            sys.stdout.write("".join(difflib.unified_diff(
+                (old or "").splitlines(True), [], fromfile=str(path), tofile="/dev/null")))
+        else:
+            sys.stdout.write(_diff(path, old, new))
+        print(f"(dry run: {path} not written; would have {what})")
+        if not uninstall:
+            print(target.note)
+        return EXIT_OK
+    if new is None:
+        path.unlink()
+    else:
+        _write(path, old, new, backup_old=False, mode=0o644)
+    print(f"{path}: {what}")
+    if not uninstall:
+        print(target.note)
+    return EXIT_OK
+
+
 def install_hook(runtime: str, dry_run: bool = False, uninstall: bool = False) -> int:
+    if runtime in ASSET_TARGETS:
+        return install_asset(runtime, dry_run, uninstall)
     if runtime == "claude":
         raise CtxError("Claude needs no installer: invoking the context-budget skill "
                        "registers its PostToolUse hook for the rest of the session")
     if runtime not in HOOK_TARGETS:
         raise CtxError(f"install-hook {runtime}: not implemented in this version "
-                       f"(supported: {', '.join(sorted(HOOK_TARGETS))})")
+                       f"(supported: {', '.join(sorted({*HOOK_TARGETS, *ASSET_TARGETS}))})")
     target = HOOK_TARGETS[runtime]
     if runtime == "antigravity":
         def plan(old, path):

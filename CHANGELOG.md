@@ -70,3 +70,20 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     prints `{}` when silent. Antigravity warns only on `PreInvocation`
     (`--event`), because `PostToolUse` must return `{}`.
   - These are built from the documented contracts and are not live-verified.
+- Added opt-in backstops for OpenCode (v1 and v2) and Pi.
+  - `ctxcheck install-hook opencode|pi [--dry-run|--uninstall]` copies a
+    dependency-free TypeScript file (`scripts/assets/`) into
+    `~/.config/opencode/plugins/` or `~/.pi/agent/extensions/` as
+    `ctxcheck-context-budget.ts`, with the absolute ctxcheck path filled in.
+    It is idempotent. Uninstall deletes only that file, and a foreign file
+    of the same name is refused.
+  - One OpenCode file serves v2 (`setup()`, `tool.hook("execute.after")`)
+    and v1 (`server()`, `"tool.execute.after"`). The Pi extension sends
+    `ctx.getContextUsage()` on each `tool_result`. Both append the warning
+    to the tool result, wait at most 5 s, and swallow every error.
+  - `--hook` accepts `{runtime, session_id, used?, window?}` from them. It
+    trusts supplied usage instead of reading the session file, and answers
+    `{"message": ...}` or `{}`.
+  - `references/runtimes.md` now lists the install command and
+    live-verification state for every runtime. These two are not
+    live-verified.

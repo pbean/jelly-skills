@@ -233,10 +233,13 @@ class OtherRuntimesTest(_Tmp):
         self.assertEqual(r.returncode, 1)
         self.assertIn("context-budget skill", r.stderr)
 
-    def test_opencode_is_not_implemented_yet(self):
-        r = self.run_install(runtime="opencode")
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("not implemented in this version", r.stderr)
+    def test_opencode_and_pi_install_plugin_files_not_hooks_json(self):
+        for runtime in ("opencode", "pi"):
+            with self.subTest(runtime=runtime):
+                r = self.run_install("--dry-run", runtime=runtime)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("ctxcheck-context-budget.ts", r.stdout)
+                self.assertFalse(self.file.exists())
 
 
 class ArrayEditTest(unittest.TestCase):

@@ -13,6 +13,12 @@ Runtimes are entries in RUNTIMES (input normalization + output shape); later
 versions add theirs there. Without --runtime the entry is inferred from the
 payload's keys. `--event E` names the hook event for runtimes whose payload
 doesn't (Antigravity), so the installed command says which event it serves.
+
+OpenCode and Pi have no shell hooks: ctxcheck's own plugin / extension
+(scripts/assets/) pipes {runtime, session_id[, used, window]} here and appends
+the "message" of our {"message": ...} reply to the tool result. When the
+payload carries usage (Pi's ctx.getContextUsage()), it is trusted as is and
+no session file is read.
 """
 
 from __future__ import annotations
@@ -32,6 +38,8 @@ class Event(NamedTuple):
     session: Optional[str]
     transcript: Optional[str]
     name: Optional[str] = None         # the hook event, when known
+    used: Optional[int] = None         # usage the runtime measured itself (Pi)
+    window: Optional[int] = None
 
 
 def _always(event: Event) -> bool:
@@ -116,7 +124,42 @@ def _antigravity(payload: dict) -> Event:
 ANTIGRAVITY_EVENT = "PreInvocation"
 
 
+# --- OpenCode, Pi: our own plugin / extension is the caller, so the payload is
+# ctxcheck's: {"runtime": R, "session_id": id, "used"?: n, "window"?: n}.
+
+def _count(v: object) -> Optional[int]:
+    # bool is an int subclass; a JSON true is not a token count.
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+        return None
+    return int(v)
+
+
+def _ours(runtime_name: str) -> Callable[[dict], bool]:
+    return lambda payload: payload.get("runtime") == runtime_name
+
+
+def _piped(payload: dict) -> Event:
+    window = _count(payload.get("window"))
+    return Event(_str(payload.get("session_id")), None, None,
+                 _count(payload.get("used")), window or None)
+
+
+def _message(msg: str) -> str:
+    return json.dumps({"message": msg})
+
+
 RUNTIMES: dict[str, HookRuntime] = {
+    # OpenCode and Pi first: their payloads are ctxcheck's own and name the
+    # runtime, and they carry a session_id that Claude's sniff would take.
+    # OpenCode v1/v2: assets/opencode-plugin.ts sends {runtime, session_id};
+    # usage is read from opencode.db by session id (OpenCode v1 exposes no
+    # session id to tools, so the plugin is the only source of it).
+    "opencode": HookRuntime("opencode", _piped, _message, _ours("opencode"),
+                            silent="{}"),
+    # Pi: assets/pi-extension.ts sends {runtime, session_id, used, window}
+    # from ctx.getContextUsage(); without "used" (Pi reports null tokens right
+    # after a compaction) the session JSONL is read instead.
+    "pi": HookRuntime("pi", _piped, _message, _ours("pi"), silent="{}"),
     # verified 2026-10-15 (Codex first: its payload is a superset of Claude's):
     # Codex: https://learn.chatgpt.com/docs/hooks - stdin session_id,
     # transcript_path, cwd, hook_event_name, model, turn_id, tool_name ("Bash"
@@ -254,11 +297,16 @@ def _run(argv: Sequence[str], out: dict) -> Optional[str]:
     if state.get("runtime") and state["runtime"] != backend.name:
         backend = runtime.by_name(state["runtime"])
 
-    path = _transcript(backend, event, session)
-    if not path:
-        return None
-    usage = backend.read(path)
-    window = int(state.get("contextWindow") or usage.window or 0)
+    if event.used is not None:
+        # The runtime measured it (Pi): trust it over its session file.
+        used, measured_window = event.used, event.window
+    else:
+        path = _transcript(backend, event, session)
+        if not path:
+            return None
+        usage = backend.read(path)
+        used, measured_window = usage.used, usage.window
+    window = int(state.get("contextWindow") or measured_window or 0)
     if window <= 0:
         return None
     gate = state.get("handoffPct")
@@ -267,7 +315,7 @@ def _run(argv: Sequence[str], out: dict) -> Optional[str]:
             return None
         gate = gates.band_for(state["role"], window)
     gate = float(gate)
-    pct = round(usage.used / window * 100, 1)
+    pct = round(used / window * 100, 1)
     if pct <= gate:
         return None
     warned = state.get("warnedAtPct")
@@ -278,7 +326,7 @@ def _run(argv: Sequence[str], out: dict) -> Optional[str]:
         markers.write(state)
     except OSError:
         pass  # still warn; at worst the next call warns again
-    return rt.emit(message(state, usage.used, window, pct, gate))
+    return rt.emit(message(state, used, window, pct, gate))
 
 
 def main(argv: Sequence[str]) -> int:

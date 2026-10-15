@@ -100,7 +100,6 @@ class ListPresetsTest(unittest.TestCase):
 
 class NotImplementedTest(unittest.TestCase):
     CASES = (
-        ["install-hook", "opencode"],
         ["launch-command", "--json"],
     )
 

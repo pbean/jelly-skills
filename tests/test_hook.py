@@ -1,6 +1,6 @@
 """ctxcheck --hook: silent unless an armed session is over its gate; the Claude,
-Codex, Cursor, Copilot and Antigravity output shapes; re-nagging; never
-failing loudly.
+Codex, Cursor, Copilot, Antigravity, OpenCode and Pi output shapes;
+re-nagging; never failing loudly.
 
 The Cursor, Copilot and Antigravity payloads are synthetic, shaped after the
 documented contracts cited in ctxlib/hook.py (none is live-verified)."""
@@ -8,6 +8,7 @@ documented contracts cited in ctxlib/hook.py (none is live-verified)."""
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -393,3 +394,143 @@ class AntigravityHookTest(_StatuslineHook):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+OC_SESSION = "ses_hook_synthetic"
+PI_SESSION = "0199dddd-0000-7000-8000-0000000000e1"
+
+
+class _PipedHook(_Hook):
+    """OpenCode and Pi: the payload is the one ctxcheck's own plugin /
+    extension pipes in (scripts/assets/), and the reply is {"message": ...}."""
+
+    def piped(self, r) -> str:
+        out = json.loads(r.stdout)
+        self.assertEqual(set(out), {"message"})
+        return out["message"]
+
+    def assert_empty_object(self, r):
+        self.assertEqual(r.stdout, "{}\n")
+
+
+class OpenCodeHookTest(_PipedHook):
+    def setUp(self):
+        super().setUp()
+        self.work = self.tmp / "work"
+        self.work.mkdir()
+        db = Path(self.bare_env["XDG_DATA_HOME"]) / "opencode" / "opencode.db"
+        db.parent.mkdir(parents=True)
+        con = sqlite3.connect(str(db))
+        con.executescript(
+            "CREATE TABLE session_v2 (id text PRIMARY KEY, parent_id text, directory text, "
+            "revert text, time_updated integer);"
+            "CREATE TABLE session_message (id text PRIMARY KEY, session_id text, type text, "
+            "seq integer, data text);")
+        con.execute("INSERT INTO session_v2 VALUES (?, NULL, ?, NULL, 1)",
+                    (OC_SESSION, str(self.work)))
+        tok = {"input": 9_000, "output": 1_000, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+        con.execute("INSERT INTO session_message VALUES ('m1', ?, 'assistant', 1, ?)",
+                    (OC_SESSION, json.dumps({"tokens": tok})))
+        con.commit()
+        con.close()
+        self.oc_env = dict(self.bare_env, OPENCODE="1", OPENCODE_SESSION_ID=OC_SESSION)
+
+    def arm_oc(self, *extra):
+        r = helpers.run_ctxcheck(["--arm", "--role", "worker", "--label", LABEL,
+                                  "--window", "100000", *extra], self.oc_env, cwd=self.work)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def oc_payload(self, **over) -> str:
+        p = {"runtime": "opencode", "session_id": OC_SESSION}
+        p.update(over)
+        return json.dumps(p)
+
+    def test_message_explicit_and_inferred(self):
+        self.arm_oc("--gate", "1")  # 10,000 / 100,000 = 10%
+        msg = self.piped(self.hook(self.oc_payload(), "--runtime", "opencode"))
+        self.assertIn("CONTEXT BUDGET EXCEEDED for " + LABEL, msg)
+        self.assertIn("10,000/100,000 tokens (10.0%)", msg)
+        self.marker(OC_SESSION).write_text(
+            self.marker(OC_SESSION).read_text().replace('"warnedAtPct": 10.0', '"warnedAtPct": null'))
+        self.assertIn("10.0%", self.piped(self.hook(self.oc_payload())))
+
+    def test_under_gate_unarmed_and_garbage_print_empty_object(self):
+        self.assert_empty_object(self.hook(self.oc_payload(), "--runtime", "opencode"))
+        self.arm_oc("--gate", "50")
+        self.assert_empty_object(self.hook(self.oc_payload(), "--runtime", "opencode"))
+        self.assert_empty_object(self.hook("not json", "--runtime", "opencode"))
+        self.assert_empty_object(self.hook(self.oc_payload(session_id=None),
+                                           "--runtime", "opencode"))
+
+    def test_used_in_the_payload_is_trusted_for_opencode_too(self):
+        self.arm_oc("--gate", "50")
+        msg = self.piped(self.hook(self.oc_payload(used=60_000), "--runtime", "opencode"))
+        self.assertIn("60,000/100,000 tokens (60.0%)", msg)
+
+
+class PiHookTest(_PipedHook):
+    def setUp(self):
+        super().setUp()
+        self.work = self.tmp / "work"
+        self.work.mkdir()
+        from ctxlib.backends import pi
+        d = Path(self.bare_env["HOME"]) / ".pi" / "agent" / "sessions" / pi.cwd_slug(self.work)
+        d.mkdir(parents=True)
+        self.session_file = d / f"2026-10-15T14-00-00-000Z_{PI_SESSION}.jsonl"
+        lines = [{"type": "session", "id": PI_SESSION, "cwd": str(self.work)},
+                 {"type": "message", "id": "a1", "parentId": None, "message": {
+                     "role": "assistant", "stopReason": "stop",
+                     "usage": {"totalTokens": 6_000}}}]
+        self.session_file.write_text("".join(json.dumps(x) + "\n" for x in lines),
+                                     encoding="utf-8")
+        self.pi_env = dict(self.bare_env, PI_CODING_AGENT="true", PI_SESSION_ID=PI_SESSION,
+                           PI_SESSION_FILE=str(self.session_file))
+
+    def arm_pi(self, *extra):
+        r = helpers.run_ctxcheck(["--arm", "--role", "worker", "--label", LABEL,
+                                  "--window", "100000", *extra], self.pi_env, cwd=self.work)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def pi_payload(self, **over) -> str:
+        p = {"runtime": "pi", "session_id": PI_SESSION}
+        p.update(over)
+        return json.dumps(p)
+
+    def test_supplied_usage_is_trusted_over_the_session_file(self):
+        self.arm_pi("--gate", "10")  # the file says 6%: under the gate
+        self.assert_empty_object(self.hook(self.pi_payload(), "--runtime", "pi"))
+        msg = self.piped(self.hook(self.pi_payload(used=50_000, window=100_000),
+                                   "--runtime", "pi"))
+        self.assertIn("50,000/100,000 tokens (50.0%)", msg)
+
+    def test_low_supplied_usage_silences_a_file_over_the_gate(self):
+        self.arm_pi("--gate", "5")  # the file says 6%: over the gate
+        self.assert_empty_object(self.hook(self.pi_payload(used=1_000, window=100_000),
+                                           "--runtime", "pi"))
+        self.assertIn("6,000/100,000", self.piped(self.hook(self.pi_payload(), "--runtime", "pi")))
+
+    def test_supplied_window_fills_in_when_the_marker_has_none(self):
+        self.arm_pi("--gate", "10")
+        state = json.loads(self.marker(PI_SESSION).read_text())
+        state["contextWindow"] = None
+        self.marker(PI_SESSION).write_text(json.dumps(state))
+        msg = self.piped(self.hook(self.pi_payload(used=30_000, window=200_000)))
+        self.assertIn("30,000/200,000 tokens (15.0%)", msg)
+
+    def test_inferred_not_taken_for_claude(self):
+        self.arm_pi("--gate", "10")
+        self.piped(self.hook(self.pi_payload(used=50_000, window=100_000)))
+
+    def test_bad_usage_values_fall_back_to_the_file(self):
+        self.arm_pi("--gate", "5")
+        for bad in (True, "50000", -1, None):
+            with self.subTest(used=bad):
+                state = json.loads(self.marker(PI_SESSION).read_text())
+                state["warnedAtPct"] = None
+                self.marker(PI_SESSION).write_text(json.dumps(state))
+                msg = self.piped(self.hook(self.pi_payload(used=bad), "--runtime", "pi"))
+                self.assertIn("6,000/100,000", msg)
+
+    def test_unarmed_prints_empty_object(self):
+        self.assert_empty_object(self.hook(self.pi_payload(used=99_000, window=100_000),
+                                           "--runtime", "pi"))

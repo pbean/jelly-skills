@@ -99,6 +99,9 @@ armed, a post-tool hook also warns it once it goes over its gate:
   `ctxcheck install-hook <runtime>` once, in addition to the status-line
   setup below. Antigravity warns before the next model call, not after the
   tool call.
+- **On OpenCode and Pi**, the user runs `ctxcheck install-hook opencode` or
+  `ctxcheck install-hook pi` once. It installs a small plugin / extension
+  file that appends the warning to the tool result.
 
 Which runtimes are measured, and how, is in
 [references/runtimes.md](references/runtimes.md). Copilot CLI, Antigravity

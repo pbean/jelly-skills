@@ -13,7 +13,8 @@ Usage:
     ctxcheck --arm --role R --label "<free text>" [--gate PCT] [--window N]
     ctxcheck --disarm
     ctxcheck --hook [--runtime R] [--event E]     (run by the agent's hook)
-    ctxcheck install-hook codex|cursor|copilot|antigravity [--dry-run|--uninstall]
+    ctxcheck install-hook codex|cursor|copilot|antigravity|opencode|pi
+             [--dry-run|--uninstall]
     ctxcheck statusline-tee --runtime R [-- <wrapped status-line cmd...>]
     ctxcheck install-statusline cursor|copilot|antigravity [--dry-run|--uninstall]
 
@@ -26,8 +27,8 @@ overrides it. With neither, usage is reported with no threshold - unless the
 session is armed: then a plain `ctxcheck` uses the role, gate and window
 recorded by --arm. Arming also lets the post-tool hook warn the agent when it
 goes over its gate (Claude: the context-budget skill's own hook; Codex,
-Cursor, Copilot, Antigravity: install-hook R). Disarm when the session's work
-ends.
+Cursor, Copilot, Antigravity: install-hook R; OpenCode, Pi: install-hook R
+writes a plugin / extension file). Disarm when the session's work ends.
 
 Exit codes:
     0   ok, or at/under the gate
