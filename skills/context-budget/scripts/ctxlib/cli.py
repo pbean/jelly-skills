@@ -10,6 +10,10 @@ Usage:
              [--runtime auto|claude|codex|opencode|pi|copilot|antigravity|cursor]
              [--session ID] [--transcript PATH]
     ctxcheck --list-presets
+    ctxcheck --arm --role R --label "<free text>" [--gate PCT] [--window N]
+    ctxcheck --disarm
+    ctxcheck --hook [--runtime R]     (run by the agent's post-tool hook)
+    ctxcheck install-hook codex [--dry-run|--uninstall]
     ctxcheck statusline-tee --runtime R [-- <wrapped status-line cmd...>]
     ctxcheck install-statusline cursor|copilot|antigravity [--dry-run|--uninstall]
 
@@ -18,7 +22,11 @@ sidecar: run install-statusline once, then keep the TUI on screen (snapshots
 older than 15 minutes are refused with exit 3).
 
 With --role, the gate is derived from the window (see --list-presets); --gate
-overrides it. With neither, usage is reported with no threshold.
+overrides it. With neither, usage is reported with no threshold - unless the
+session is armed: then a plain `ctxcheck` uses the role, gate and window
+recorded by --arm. Arming also lets the post-tool hook warn the agent when it
+goes over its gate (Claude: the context-budget skill's own hook; Codex:
+install-hook codex). Disarm when the session's work ends.
 
 Exit codes:
     0   ok, or at/under the gate
@@ -49,7 +57,7 @@ from typing import NoReturn, Sequence
 
 from . import (EXIT_ERROR, EXIT_GATE_EXCEEDED, EXIT_OK, EXIT_UNMEASURABLE,
                CtxError, Unmeasurable)
-from . import gates, install, runtime, tee
+from . import gates, hook, install, markers, runtime, tee
 
 # Verbs the CLI shape reserves for later phases. They parse now so that
 # callers and docs can be written against the final shape.
@@ -73,7 +81,8 @@ def _subcommand_parsers() -> dict[str, argparse.ArgumentParser]:
     for verb, what, choices in (
             ("install-statusline", "wrap the runtime's status line in statusline-tee",
              tuple(sorted(install.STATUSLINE_TARGETS))),
-            ("install-hook", "install the post-tool backstop (P4-P6)", ALL_RUNTIMES)):
+            ("install-hook", "install the post-tool backstop that warns an armed "
+             "session over its gate", ALL_RUNTIMES)):
         p = _Parser(prog=f"ctxcheck {verb}", description=what)
         p.add_argument("target_runtime", metavar="RUNTIME", choices=choices)
         g = p.add_mutually_exclusive_group()
@@ -104,10 +113,13 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--session", help="session id (default: the runtime's session env var)")
     p.add_argument("--transcript", help="explicit transcript path, e.g. a hook's transcript_path")
     p.add_argument("--list-presets", action="store_true")
-    p.add_argument("--arm", action="store_true", help=f"arm the backstop ({NOT_IMPLEMENTED})")
-    p.add_argument("--disarm", action="store_true", help=f"disarm ({NOT_IMPLEMENTED})")
-    p.add_argument("--hook", action="store_true", help=f"post-tool backstop ({NOT_IMPLEMENTED})")
-    p.add_argument("--label", help="--arm: free text naming the work, for warnings")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--arm", action="store_true",
+                   help="record this session's role, gate and window (needs --role)")
+    g.add_argument("--disarm", action="store_true", help="remove this session's marker")
+    g.add_argument("--hook", action="store_true",
+                   help="post-tool backstop: read hook JSON on stdin; always exits 0")
+    p.add_argument("--label", help='--arm: free text naming the work, e.g. "session 3 of /abs/plan.md"')
     return p
 
 
@@ -117,12 +129,9 @@ def _die(msg: str, code: int = EXIT_ERROR) -> int:
 
 
 def load_marker(session: str | None) -> dict | None:
-    """The armed-session marker for `session`, if any.
-
-    Arming arrives in P4; until then no session is armed. When it lands, a
-    marker supplies role, gate and window for a plain `ctxcheck`.
-    """
-    return None
+    """The armed-session marker for `session`, if any. It supplies role, gate
+    and window for a plain `ctxcheck`."""
+    return markers.load(session)
 
 
 def _env_int(name: str) -> int | None:
@@ -250,20 +259,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "statusline-tee":
         return tee.main(args[1:])
+    if "--hook" in args:  # parses its own args: it must exit 0 even when they are wrong
+        return hook.main(args)
     subs = _subcommand_parsers()
     try:
         if args and args[0] in subs:
             sa = subs[args[0]].parse_args(args[1:])
             if args[0] == "install-statusline":
                 return install.install_statusline(sa.target_runtime, sa.dry_run, sa.uninstall)
+            if args[0] == "install-hook":
+                return install.install_hook(sa.target_runtime, sa.dry_run, sa.uninstall)
             return _die(f"{args[0]}: {NOT_IMPLEMENTED}")
 
         a = _parser().parse_args(args)
-        for flag in ("arm", "disarm", "hook"):
-            if getattr(a, flag):
-                return _die(f"--{flag}: {NOT_IMPLEMENTED}")
+        if a.arm:
+            return markers.arm(a)
+        if a.disarm:
+            return markers.disarm(a)
         if a.list_presets:
             return list_presets()
         return measure(a)
+    except Unmeasurable as e:  # --arm / --disarm on a runtime with no budget
+        tried = "".join(f"\n  tried {t}" for t in e.tried)
+        return _die(f"{e}{tried}", EXIT_UNMEASURABLE)
     except CtxError as e:
         return _die(str(e))

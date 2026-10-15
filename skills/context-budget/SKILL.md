@@ -15,6 +15,20 @@ compatibility: >-
 metadata:
   author: pbean
   version: "0.1.0"
+hooks:
+  PostToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          timeout: 10
+          command: >-
+            d="${CTXCHECK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/jelly-skills/ctxcheck}/markers";
+            if ls "$d"/*.json >/dev/null 2>&1; then
+            for s in "$CLAUDE_PLUGIN_ROOT" "$CLAUDE_PROJECT_DIR/.claude/skills/context-budget"
+            "$HOME/.claude/skills/context-budget" "$HOME/.agents/skills/context-budget"; do
+            if [ -f "$s/scripts/ctxcheck" ]; then
+            exec python3 "$s/scripts/ctxcheck" --hook --runtime claude; fi; done; fi;
+            cat >/dev/null; exit 0
 ---
 
 # context-budget
@@ -62,6 +76,25 @@ With no `--role` or `--gate`, ctxcheck only reports usage.
 
 Check at boundaries, such as between phases or numbered edits, rather than
 after every step.
+
+## Arm, check, disarm
+
+Arm once at the start of work that should measure itself. Arming records the
+role, the gate and the window, so later checks need no flags:
+
+```bash
+python3 <this skill's dir>/scripts/ctxcheck --arm --role worker --label "session 3 of /abs/plan.md"
+python3 <this skill's dir>/scripts/ctxcheck ; echo $?    # uses the marker: 0 ok, 10 over
+python3 <this skill's dir>/scripts/ctxcheck --disarm      # on every way out
+```
+
+`--gate PCT` and `--window N` override the derived values. While a session is
+armed, a post-tool hook also warns it once it goes over its gate:
+
+- **On Claude Code**, invoking this skill registers the hook for the rest of
+  the session.
+- **On Codex**, the user runs `ctxcheck install-hook codex` once and trusts
+  the hook in Codex's `/hooks`.
 
 Which runtimes are measured, and how, is in
 [references/runtimes.md](references/runtimes.md). Copilot CLI, Antigravity

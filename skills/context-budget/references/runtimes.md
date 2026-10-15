@@ -20,8 +20,8 @@ sources.
 
 | Runtime | How it's measured | Window source | Backstop |
 | --- | --- | --- | --- |
-| Claude Code | `CLAUDE_CODE_SESSION_ID` → `~/.claude/projects/*/<id>.jsonl`. Last non-sidechain assistant: `input + cache_creation_input + cache_read`. | Env, then model rules (1M or 200K) | pending |
-| Codex CLI | `CODEX_THREAD_ID` → `$CODEX_HOME/sessions/**/rollout-*-<id>.jsonl`. Last `token_count` `last_token_usage.total_tokens`. Falls back to the newest root rollout for the cwd. | The session's `model_context_window` (already ×0.95) | pending |
+| Claude Code | `CLAUDE_CODE_SESSION_ID` → `~/.claude/projects/*/<id>.jsonl`. Last non-sidechain assistant: `input + cache_creation_input + cache_read`. | Env, then model rules (1M or 200K) | Automatic: the skill's frontmatter `PostToolUse` hook, registered when the skill is invoked (live-verified, Claude Code 2.1.301) |
+| Codex CLI | `CODEX_THREAD_ID` → `$CODEX_HOME/sessions/**/rollout-*-<id>.jsonl`. Last `token_count` `last_token_usage.total_tokens`. Falls back to the newest root rollout for the cwd. | The session's `model_context_window` (already ×0.95) | Opt-in: `ctxcheck install-hook codex`, then trust it in `/hooks` |
 | OpenCode v2 (2.0.x) | `OPENCODE_SESSION_ID` → `opencode.db` tables `session_v2` / `session_message`, opened read-only. Newest `assistant` row with `tokens` after the last completed `compaction`, before any revert point: `input + output + reasoning + cache.read + cache.write`. | `kv['models-dev:catalog']` → `limit.context`, else the v1 cache file, else a preset | pending |
 | OpenCode v1 (1.19.x) | No session id; only `OPENCODE=1` is set. Newest top-level `session` whose `directory` is the cwd. Same database, tables `session` / `message`: newest assistant with `output > 0`, same five-field sum. | `$XDG_CACHE_HOME/opencode/models.json` (or `$OPENCODE_MODELS_PATH`) → `limit.context`, else a preset | pending |
 | Pi (1.2.x) | `PI_SESSION_ID` / `PI_SESSION_FILE` → `<agent dir>/sessions/--<cwd slug>--/<stamp>_<id>.jsonl`. Walks the `parentId` chain from the last entry, so abandoned branches don't count. Latest non-aborted, non-error assistant `usage.totalTokens`, else `input + output + cacheRead + cacheWrite`. A `compaction` resets usage to 0 until the next response. | `PI_PROVIDER`/`PI_MODEL` (else the branch's model) → Pi's `models.json`, then `models-store.json`, then OpenCode's models.dev data. Otherwise `--window` / `CTXCHECK_WINDOW` / `CTXCHECK_PRESET` is required (exit 3). | pending |
@@ -30,7 +30,8 @@ sources.
 | Cursor CLI | No session id; `CURSOR_AGENT=1` only says Cursor is running. The newest sidecar whose `cwd` is the cwd. `current_usage` as above (its fields are undocumented), else `used_percentage` × window. | `context_window.context_window_size`. No preset fallback. | pending |
 
 The "Backstop" column records how a runtime gets the post-tool warning when an
-armed session goes over its gate. Installers arrive in later versions.
+armed session goes over its gate (see "Backstops"). The other runtimes are
+measured, but have no backstop yet.
 
 ## Where the data lives
 
@@ -137,6 +138,47 @@ so they can't be measured.
 **Copilot CLI isn't an Orca worker.** Orca has no Copilot agent id for
 dispatched workers. In a run-plan program, Copilot can only be the
 coordinator or a hand-run planner session.
+
+## Backstops
+
+A backstop is a post-tool hook that runs `ctxcheck --hook`. It stays silent
+unless the session is armed (`ctxcheck --arm`) and over its gate. Then it adds
+one role-specific instruction to the model's context, and it repeats the
+warning only after usage climbs another 5 points. Every error exits 0 with no
+output, so a broken backstop never blocks a tool call.
+
+**Claude Code: automatic.**
+- The `context-budget` SKILL.md frontmatter declares a `PostToolUse` hook
+  (matcher `Bash`). Claude Code registers it when the skill is invoked and
+  keeps it for the rest of the session.
+- Its command first checks the markers dir, so an unarmed machine costs one
+  `ls`. It then finds `ctxcheck` through `$CLAUDE_PLUGIN_ROOT`, which Claude
+  Code 2.1.301 sets to the skill's dir for skill hooks (observed, not
+  documented). If that fails it searches
+  `$CLAUDE_PROJECT_DIR/.claude/skills/context-budget`,
+  `~/.claude/skills/context-budget` and `~/.agents/skills/context-budget`.
+- `${CLAUDE_SKILL_DIR}` is *not* expanded in hook commands.
+- Live-verified 2026-10-15: the hook fired on a later turn, the skill's
+  copy of `ctxcheck` was found, and the warning reached the model.
+
+**Codex CLI: `ctxcheck install-hook codex [--dry-run|--uninstall]`.**
+- **What changes:** the installer appends one group to
+  `$CODEX_HOME/hooks.json` (default `~/.codex`), under `hooks.PostToolUse`:
+  `{"matcher": "Bash", "hooks": [{"type": "command", "command": "python3
+  <abs ctxcheck> --hook --runtime codex", "timeout": 10}]}`.
+- It appends after existing groups, such as Orca's. Codex keys hook trust by
+  position, so existing trust stays valid.
+- It makes a timestamped backup first. Re-running is a no-op. `--dry-run`
+  prints the diff and writes nothing.
+- **Trust:** Codex skips a new hook until you trust it. Start Codex, run
+  `/hooks`, and trust the ctxcheck entry.
+- **Undo:** `--uninstall` removes only the ctxcheck group and leaves every
+  other byte as it was.
+- **Codex tolerates the skill's frontmatter:** Codex 0.162.1 ignores the
+  frontmatter `hooks:` key. Its `SkillFrontmatter` has no
+  `deny_unknown_fields`; see `codex-rs/skills/src/parser.rs`.
+- The Codex hook is tested against a temp `CODEX_HOME`. It is not
+  live-verified in a Codex session.
 
 ## Known gaps
 

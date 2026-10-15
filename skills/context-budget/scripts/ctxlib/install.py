@@ -1,5 +1,10 @@
 """Opt-in installers that edit an agent's own settings file.
 
+`ctxcheck install-hook R [--dry-run|--uninstall]` adds the post-tool backstop
+(`ctxcheck --hook --runtime R`) to runtime R's hooks file. Claude needs no
+installer: the context-budget skill's own frontmatter hook registers when the
+skill is invoked.
+
 `ctxcheck install-statusline R [--dry-run|--uninstall]` points runtime R's
 status line at `ctxcheck statusline-tee`, wrapping whatever command was there:
 
@@ -231,19 +236,29 @@ def install_statusline(runtime: str, dry_run: bool = False, uninstall: bool = Fa
     if runtime not in STATUSLINE_TARGETS:
         raise CtxError(f"install-statusline supports {', '.join(sorted(STATUSLINE_TARGETS))}; "
                        f"{runtime} is measured from its own session data")
-    target = STATUSLINE_TARGETS[runtime]
+    return _apply(runtime, STATUSLINE_TARGETS[runtime],
+                  lambda old, path: plan_statusline(runtime, old, path, uninstall),
+                  dry_run, uninstall)
+
+
+def _apply(runtime: str, target: Target,
+           plan: Callable[[Optional[str], Path], tuple[str, str]],
+           dry_run: bool, uninstall: bool) -> int:
+    """Read the target file, plan the edit, then diff (dry run) or write it."""
     path = target.path()
     old = _read(path)
     if old is None and not uninstall and not target.may_create:
         raise CtxError(f"{path} not found; start {runtime} once so it writes its config, "
                        "then re-run")
-    new, what = plan_statusline(runtime, old, path, uninstall)
+    new, what = plan(old, path)
     if new == (old if old is not None else "") or (old is None and uninstall):
         print(f"{path}: {what}; nothing to change")
         return EXIT_OK
     if dry_run:
         sys.stdout.write(_diff(path, old, new))
         print(f"(dry run: {path} not written; would have {what})")
+        if not uninstall and runtime in HOOK_TARGETS:
+            print(target.note)
         return EXIT_OK
     backup = _write(path, old, new)
     print(f"{path}: {what}")
@@ -252,3 +267,128 @@ def install_statusline(runtime: str, dry_run: bool = False, uninstall: bool = Fa
     if not uninstall:
         print(target.note)
     return EXIT_OK
+
+
+# --- post-tool hook installers -------------------------------------------
+
+def hook_command(runtime: str) -> str:
+    return f"{PYTHON} {shlex.quote(str(CTXCHECK))} --hook --runtime {runtime}"
+
+
+def is_our_hook(command: str) -> bool:
+    """A command written by hook_command, from any install path."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    return "--hook" in tokens and any(Path(tok).name == "ctxcheck" for tok in tokens)
+
+
+HOOK_TIMEOUT = 10  # seconds; ctxcheck --hook reads one transcript and exits
+
+# verified 2026-10-15: https://learn.chatgpt.com/docs/hooks (Codex 0.162.1).
+# User hooks live in $CODEX_HOME/hooks.json (default ~/.codex) as
+#   {"hooks": {"PostToolUse": [{"matcher": "<regex>", "hooks": [
+#       {"type": "command", "command": "...", "timeout": <seconds>}]}]}}
+# Shell commands match as "Bash" (codex-rs/core/src/tools/hook_names.rs). A
+# new or changed hook is skipped until the user trusts it (/hooks); trust is
+# keyed by <file>:<event>:<group index>:<hook index> in config.toml, so the
+# installer appends a group last and never shifts the indices of existing
+# (e.g. Orca's) hooks.
+HOOK_TARGETS = {
+    "codex": Target(
+        lambda: _home("CODEX_HOME", ".codex") / "hooks.json",
+        True, "Codex skips a new hook until you trust it: start Codex, run /hooks, "
+              "and trust the ctxcheck PostToolUse hook."),
+}
+
+
+def _hook_group(runtime: str) -> dict:
+    return {"matcher": "Bash", "hooks": [
+        {"type": "command", "command": hook_command(runtime), "timeout": HOOK_TIMEOUT}]}
+
+
+def _find_ours(text: str, groups: jsonedit.Node) -> list[tuple[int, int, jsonedit.Node]]:
+    """(group index, hook index, command node) for each ctxcheck hook."""
+    found = []
+    for gi, group in enumerate(groups.items):
+        hooks = group.get("hooks") if group.kind == "object" else None
+        if not hooks or hooks.value.kind != "array":
+            continue
+        for hi, h in enumerate(hooks.value.items):
+            cmd = h.get("command") if h.kind == "object" else None
+            value = _string(text, cmd.value) if cmd else None
+            if value and is_our_hook(value):
+                found.append((gi, hi, cmd.value))
+    return found
+
+
+def plan_hooks_json(runtime: str, text: Optional[str], path: Path, event: str,
+                    uninstall: bool) -> tuple[str, str]:
+    """(new text, what happened) for a {"hooks": {event: [groups]}} file."""
+    if text is None:
+        if uninstall:
+            return "", "not installed (no hooks file)"
+        text = "{}\n"
+    top = _parse(path, text)
+    hooks_m = top.get("hooks")
+    if hooks_m is not None and hooks_m.value.kind != "object":
+        raise CtxError(f"{path}: hooks is not an object; edit it by hand")
+    event_m = hooks_m.value.get(event) if hooks_m else None
+    if event_m is not None and event_m.value.kind != "array":
+        raise CtxError(f"{path}: hooks.{event} is not an array; edit it by hand")
+    ours = _find_ours(text, event_m.value) if event_m else []
+
+    if uninstall:
+        if not ours:
+            return text, "not installed"
+        # Remove one at a time, re-parsing: spans shift after each edit.
+        while ours:
+            gi, hi, _ = ours[-1]
+            group = event_m.value.items[gi]
+            hooks = group.get("hooks").value
+            if len(hooks.items) == 1 and set(m.key for m in group.members) <= {
+                    "matcher", "hooks"}:
+                if len(event_m.value.items) == 1:
+                    text = (jsonedit.remove_member(text, hooks_m.value, event)
+                            if len(hooks_m.value.members) > 1
+                            else jsonedit.remove_member(text, top, "hooks"))
+                else:
+                    text = jsonedit.remove_item(text, event_m.value, gi)
+            else:
+                text = jsonedit.remove_item(text, hooks, hi)
+            top = jsonedit.parse(text)
+            hooks_m = top.get("hooks")
+            event_m = hooks_m.value.get(event) if hooks_m else None
+            ours = _find_ours(text, event_m.value) if event_m else []
+        return text, f"removed the ctxcheck {event} hook"
+
+    want = hook_command(runtime)
+    if ours:
+        stale = [node for _, _, node in ours if _string(text, node) != want]
+        if not stale:
+            return text, "already installed"
+        for node in sorted(stale, key=lambda n: n.start, reverse=True):
+            text = jsonedit.set_value(text, node, want)
+        return text, "updated the ctxcheck path in the hook command"
+    if hooks_m is None:
+        return (jsonedit.add_member(text, top, "hooks", {event: [_hook_group(runtime)]}),
+                f"added hooks.{event} with the ctxcheck hook")
+    if event_m is None:
+        return (jsonedit.add_member(text, hooks_m.value, event, [_hook_group(runtime)]),
+                f"added hooks.{event} with the ctxcheck hook")
+    return (jsonedit.append_item(text, event_m.value, _hook_group(runtime)),
+            f"appended the ctxcheck hook to hooks.{event}")
+
+
+def install_hook(runtime: str, dry_run: bool = False, uninstall: bool = False) -> int:
+    if runtime == "claude":
+        raise CtxError("Claude needs no installer: invoking the context-budget skill "
+                       "registers its PostToolUse hook for the rest of the session")
+    if runtime not in HOOK_TARGETS:
+        raise CtxError(f"install-hook {runtime}: not implemented in this version "
+                       f"(supported: {', '.join(sorted(HOOK_TARGETS))})")
+    return _apply(runtime, HOOK_TARGETS[runtime],
+                  lambda old, path: plan_hooks_json(runtime, old, path, "PostToolUse",
+                                                    uninstall),
+                  dry_run, uninstall)

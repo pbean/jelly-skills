@@ -100,10 +100,7 @@ class ListPresetsTest(unittest.TestCase):
 
 class NotImplementedTest(unittest.TestCase):
     CASES = (
-        ["--arm", "--role", "worker", "--label", "session 1 of /plan.md"],
-        ["--disarm"],
-        ["--hook"],
-        ["install-hook", "codex", "--uninstall"],
+        ["install-hook", "cursor"],
         ["launch-command", "--json"],
     )
 

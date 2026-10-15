@@ -33,6 +33,7 @@ class Node(NamedTuple):
     start: int
     end: int  # exclusive
     members: Tuple[Member, ...] = ()
+    items: Tuple["Node", ...] = ()  # an array's elements
 
     def get(self, key: str) -> Optional[Member]:
         for m in self.members:
@@ -65,14 +66,16 @@ def _value(text: str, i: int) -> Tuple[Node, int]:
                 i = _WS.match(text, i + 1).end()
         return Node("object", start, i + 1, tuple(members)), i + 1
     if c == "[":
+        items: List[Node] = []
         start = i
         i = _WS.match(text, i + 1).end()
         while text[i] != "]":
-            _, i = _value(text, i)
+            item, i = _value(text, i)
+            items.append(item)
             i = _WS.match(text, i).end()
             if text[i] == ",":
                 i = _WS.match(text, i + 1).end()
-        return Node("array", start, i + 1), i + 1
+        return Node("array", start, i + 1, items=tuple(items)), i + 1
     if c == '"':
         m = _STRING.match(text, i)
         return Node("string", i, m.end()), m.end()
@@ -138,3 +141,31 @@ def remove_member(text: str, obj: Node, key: str) -> str:
     if idx > 0:  # from the end of the previous value through this one
         return text[:obj.members[idx - 1].value.end] + text[member.value.end:]
     return text[:member.key_start] + text[obj.members[1].key_start:]
+
+
+def append_item(text: str, arr: Node, value: object) -> str:
+    """Append `value` as the array's last element, in the file's style."""
+    unit, nl = indent_unit(text), newline(text)
+    if arr.items:
+        first = arr.items[0]
+        if "\n" in text[arr.start:first.start]:
+            indent = _line_indent(text, first.start)
+            sep = "," + nl + indent
+            body = _render(value, indent, unit, nl)
+        else:  # a one-line array stays on one line
+            sep, body = ", ", json.dumps(value, ensure_ascii=False)
+        at = arr.items[-1].end
+        return text[:at] + sep + body + text[at:]
+    outer = _line_indent(text, arr.start)
+    indent = outer + unit
+    body = _render(value, indent, unit, nl)
+    return text[:arr.start] + "[" + nl + indent + body + nl + outer + "]" + text[arr.end:]
+
+
+def remove_item(text: str, arr: Node, idx: int) -> str:
+    """Delete one element. Undoes append_item exactly when it appended it."""
+    if len(arr.items) == 1:
+        return text[:arr.start] + "[]" + text[arr.end:]
+    if idx > 0:
+        return text[:arr.items[idx - 1].end] + text[arr.items[idx].end:]
+    return text[:arr.items[0].start] + text[arr.items[1].start:]

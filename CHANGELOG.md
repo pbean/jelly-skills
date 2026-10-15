@@ -42,3 +42,18 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     idempotent. `--uninstall` puts the original back.
   - Readers report `stale_seconds` and `measure_source: statusline`. They
     refuse snapshots older than 15 minutes (exit 3).
+- Added arming and a post-tool backstop for Claude Code and Codex CLI.
+  - `ctxcheck --arm --role R --label "..." [--gate PCT] [--window N]`
+    records the session's role, gate (derived per role unless given) and
+    measured window in `markers/<session>.json`. `--disarm` removes it.
+    Arming reaps markers untouched for 7 days.
+  - A plain `ctxcheck` in an armed session uses the marker's role, gate and
+    window.
+  - `ctxcheck --hook [--runtime R]` warns an armed session that is over its
+    gate, with a role-specific instruction (worker, coordinator, planner). It
+    re-warns only after 5 more points and always exits 0.
+  - Claude Code: the skill's frontmatter `PostToolUse` hook registers when the
+    skill is invoked. This was verified live, including on later turns.
+  - Codex: `ctxcheck install-hook codex [--dry-run|--uninstall]` appends a
+    `PostToolUse` group to `$CODEX_HOME/hooks.json`. Uninstall leaves every
+    other entry byte-identical; the hook must be trusted in `/hooks`.
