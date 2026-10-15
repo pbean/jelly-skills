@@ -1,12 +1,13 @@
 # jelly-skills
 
-Two companion [Agent Skills](https://agentskills.io) for running large changes as a series
+Three companion [Agent Skills](https://agentskills.io) for running large changes as a series
 of fresh agent sessions, installable with the [`skills` CLI](https://github.com/vercel-labs/skills).
 
 | Skill | What it does |
 | --- | --- |
 | **session-plan** | Plans a feature, refactor or migration as a *session program*: phases each sized to fit one fresh session, a ready-to-paste kickoff prompt per phase, everything landing on one branch as one PR. It stops after the plan is approved and hands off instead of implementing. Small tasks get a one-session fast path. |
 | **run-plan** | Runs a session-plan plan unattended: dispatches each pending phase to a fresh agent session through Orca orchestration, waits for it, checks the plan file was updated, and moves on. It stops when the plan is done or a phase is blocked. |
+| **context-budget** | Measures how full an agent session's context window is (`ctxcheck`, Python 3.9+ stdlib) against a per-role handoff gate, and holds the doctrine for what to do when a session goes over: a phase worker hands the rest of its phase to a fresh worker, a planner saves its draft and stops. Reads Claude Code, Codex, OpenCode and Pi sessions directly, and Copilot CLI, Antigravity and Cursor CLI through an opt-in status-line sidecar. |
 
 The flow is: ask your agent to plan something (session-plan triggers), approve the plan,
 then open a fresh session and run the plan (`/run-plan <abs plan path>` in Claude Code, or
@@ -15,8 +16,9 @@ a new session.
 
 ## Install
 
-Install **both skills together**. session-plan reads run-plan's
-`references/plan-format.md` through the sibling path `../run-plan/`.
+Install **all three skills together**. session-plan reads run-plan's
+`references/plan-format.md` through the sibling path `../run-plan/`, and both
+reach `ctxcheck` through the sibling path `../context-budget/`.
 
 ```bash
 # from GitHub, once published
@@ -43,7 +45,7 @@ Without `-g`, skills install into the current project (`.claude/skills/` for Cla
 
 ## Agent support
 
-Both skills are agent-neutral. They use these features when the agent has them, and fall
+All three skills are agent-neutral. They use these features when the agent has them, and fall
 back otherwise:
 
 | Capability | Used for | Fallback |
@@ -54,6 +56,7 @@ back otherwise:
 | Subagents | Research / exploration in phase sessions | Inline |
 | Persistent memory | A program-memory anchor | Skipped; plan file (+ issue) anchors only |
 | Slash commands | `/run-plan <path>` | Ask the agent to "run the plan at `<path>`" |
+| Context measurement (context-budget) | Planner, worker and coordinator handoffs before a session degrades | Exit 3: the session says it has no budget and carries on unmeasured |
 
 The plan's `run-config` block chooses which agent the run-plan **workers** are, using any
 Orca agent id (`claude`, `codex`, `cursor`, `opencode`, …). `model` is optional; leave it

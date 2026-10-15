@@ -87,3 +87,33 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - `references/runtimes.md` now lists the install command and
     live-verification state for every runtime. These two are not
     live-verified.
+- Added the worker and planner doctrine (0.2.0).
+  - The SKILL.md body covers roles and who arms which, arming at the start,
+    checks at boundaries only, exit 3 ("no context budget on this runtime"),
+    disarming on every exit, the backstop per runtime, and the gate table.
+  - `references/worker.md`: the over-budget procedure for a phase worker. It
+    stops at a safe point, leaves edits uncommitted, saves a
+    `git add -A -N && git diff` patch backup, writes (or appends to) the
+    continuation note, disarms, and reports `PHASE-STATUS:
+    continuation-required` with outcome succeeded.
+  - `references/planner.md`: save and stop. The draft goes to the plan file
+    and a planning continuation to `<plan>.planning-continuation.md` (a final
+    `## Planning continuation` section under Claude plan mode). The user gets
+    one line to resume in a fresh session.
+  - `tests/test_docs.py` checks that every `ctxcheck` flag and subcommand
+    named in `skills/**/*.md` exists, that each SKILL.md frontmatter has the
+    required keys, and that relative links in SKILL.md files resolve.
+
+### session-plan
+
+- The planner measures itself (1.1.0). It invokes context-budget at the
+  start (Claude Code), arms as `--role planner` as its first action (allowed
+  in plan mode: ctxcheck writes only its own state dir), checks after
+  exploration, after the design settles and before writing session prompts,
+  saves and stops when over budget, resumes from a planning continuation
+  without re-asking settled decisions, and disarms after the handoff.
+
+### README
+
+- Added context-budget to the skills table; install all three skills
+  together.

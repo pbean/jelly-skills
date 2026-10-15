@@ -14,10 +14,10 @@ license: MIT
 compatibility: >-
   Any coding agent with a shell and git. Uses plan mode, structured questions,
   subagents and persistent memory when the agent has them. Pairs with the
-  run-plan skill; install both.
+  run-plan and context-budget skills; install all three.
 metadata:
   author: pbean
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Session Plan
@@ -57,13 +57,51 @@ The companion **run-plan** skill executes the finished plan; it is installed
 alongside this one, so its files are at `../run-plan/` relative to this
 skill's directory.
 
+The companion **context-budget** skill measures how full this session's
+context is. It is installed alongside too, at `../context-budget/`, and its
+script is `../context-budget/scripts/ctxcheck`, always run as
+`python3 <absolute path>/ctxcheck`. On Claude Code, **invoke the
+context-budget skill at the start of planning**: invoking it is what registers
+its backstop hook, which warns this session when it goes over budget. On other
+agents, just run the script.
+
 ## Workflow
 
 ### 1. Enter plan mode and explore
 
 If not already in plan mode, enter it (or hold the read-only discipline from
-"Agent capabilities" if your agent has none). Then explore until the design is
-validated against the actual code, not sketched from memory:
+"Agent capabilities" if your agent has none).
+
+**Arm the context budget first**, before any exploration:
+
+```bash
+python3 <context-budget dir>/scripts/ctxcheck --arm --role planner --label "planning <topic>"
+```
+
+This is allowed in plan mode. `ctxcheck` writes only its own state dir (a
+marker under `~/.local/state/jelly-skills/ctxcheck/`), never the project, so
+arming is not a project edit. If it exits 3, this agent can't be measured:
+say "no context budget on this runtime" once and plan without checks. Then
+check with a plain `python3 <context-budget dir>/scripts/ctxcheck ; echo $?`
+at three boundaries: after exploration, after the design settles, and before
+writing the session prompts (step 6). Exit 10, or a backstop warning, means
+you are over budget.
+
+**If you run out of budget**, save and stop exactly as
+[../context-budget/references/planner.md](../context-budget/references/planner.md)
+says: the draft goes to the plan file, a planning continuation goes beside
+it (or into the plan as a final `## Planning continuation` section under
+plan mode), you disarm, and you give the user one line to paste into a fresh
+session. Don't push on with a degraded session.
+
+**If you were given a planning continuation** (a
+`<plan>.planning-continuation.md` file, or a plan ending in a
+`## Planning continuation` section), read it and the draft plan before
+anything else. Re-arm, then carry on from its next steps. Never re-ask a
+decision it records as settled; ask only its open questions.
+
+Then explore until the design is validated against the actual code, not
+sketched from memory:
 
 - Read the relevant source and record exact anchors (`path/to/file.py:123`)
   for every integration point a phase will touch. Fresh sessions can't ask you
@@ -227,7 +265,9 @@ After approval, do exactly the plan's Post-approval steps and nothing more:
    absolute plan path (Claude Code: `/run-plan <absolute plan path>`; other
    agents: "run the plan at <absolute plan path>") — it dispatches every
    phase as its own fresh session and updates the plan as it goes. Print the Session 1 prompt in full only if they say they'd rather
-   drive a phase manually by pasting it. Then stop.
+   drive a phase manually by pasting it.
+4. Disarm the context budget:
+   `python3 <context-budget dir>/scripts/ctxcheck --disarm`. Then stop.
 
 No branch creation, no code edits, no "quick head start" — Session 1's prompt
 covers all of that, and it deserves a full window.
