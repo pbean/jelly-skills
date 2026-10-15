@@ -95,6 +95,10 @@ armed, a post-tool hook also warns it once it goes over its gate:
   the session.
 - **On Codex**, the user runs `ctxcheck install-hook codex` once and trusts
   the hook in Codex's `/hooks`.
+- **On Cursor CLI, Copilot CLI and Antigravity**, the user runs
+  `ctxcheck install-hook <runtime>` once, in addition to the status-line
+  setup below. Antigravity warns before the next model call, not after the
+  tool call.
 
 Which runtimes are measured, and how, is in
 [references/runtimes.md](references/runtimes.md). Copilot CLI, Antigravity

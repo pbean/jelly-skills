@@ -25,9 +25,9 @@ sources.
 | OpenCode v2 (2.0.x) | `OPENCODE_SESSION_ID` → `opencode.db` tables `session_v2` / `session_message`, opened read-only. Newest `assistant` row with `tokens` after the last completed `compaction`, before any revert point: `input + output + reasoning + cache.read + cache.write`. | `kv['models-dev:catalog']` → `limit.context`, else the v1 cache file, else a preset | pending |
 | OpenCode v1 (1.19.x) | No session id; only `OPENCODE=1` is set. Newest top-level `session` whose `directory` is the cwd. Same database, tables `session` / `message`: newest assistant with `output > 0`, same five-field sum. | `$XDG_CACHE_HOME/opencode/models.json` (or `$OPENCODE_MODELS_PATH`) → `limit.context`, else a preset | pending |
 | Pi (1.2.x) | `PI_SESSION_ID` / `PI_SESSION_FILE` → `<agent dir>/sessions/--<cwd slug>--/<stamp>_<id>.jsonl`. Walks the `parentId` chain from the last entry, so abandoned branches don't count. Latest non-aborted, non-error assistant `usage.totalTokens`, else `input + output + cacheRead + cacheWrite`. A `compaction` resets usage to 0 until the next response. | `PI_PROVIDER`/`PI_MODEL` (else the branch's model) → Pi's `models.json`, then `models-store.json`, then OpenCode's models.dev data. Otherwise `--window` / `CTXCHECK_WINDOW` / `CTXCHECK_PRESET` is required (exit 3). | pending |
-| Copilot CLI (1.0.98) | `COPILOT_AGENT_SESSION_ID` → the sidecar `statusline/copilot/<id>.json`, else the newest sidecar for the cwd. `context_window.current_context_tokens`, else `current_usage` `input + cache_creation_input + cache_read_input`, else `used_percentage` × window. | `context_window.displayed_context_limit`, else `context_window_size`. No preset fallback. | pending |
-| Antigravity `agy` (1.3.x) | `ANTIGRAVITY_CONVERSATION_ID` → `statusline/antigravity/<id>.json`. Without it, `~/.gemini/antigravity-cli/cache/last_conversations.json` maps the cwd to its conversation, else the newest sidecar for the cwd. `current_usage` `input + cache_creation_input + cache_read_input`, else `used_percentage` × window. | `context_window.context_window_size`. No preset fallback. | pending |
-| Cursor CLI | No session id; `CURSOR_AGENT=1` only says Cursor is running. The newest sidecar whose `cwd` is the cwd. `current_usage` as above (its fields are undocumented), else `used_percentage` × window. | `context_window.context_window_size`. No preset fallback. | pending |
+| Copilot CLI (1.0.98) | `COPILOT_AGENT_SESSION_ID` → the sidecar `statusline/copilot/<id>.json`, else the newest sidecar for the cwd. `context_window.current_context_tokens`, else `current_usage` `input + cache_creation_input + cache_read_input`, else `used_percentage` × window. | `context_window.displayed_context_limit`, else `context_window_size`. No preset fallback. | Opt-in: `ctxcheck install-hook copilot` (`postToolUse`; live-unverified) |
+| Antigravity `agy` (1.3.x) | `ANTIGRAVITY_CONVERSATION_ID` → `statusline/antigravity/<id>.json`. Without it, `~/.gemini/antigravity-cli/cache/last_conversations.json` maps the cwd to its conversation, else the newest sidecar for the cwd. `current_usage` `input + cache_creation_input + cache_read_input`, else `used_percentage` × window. | `context_window.context_window_size`. No preset fallback. | Opt-in: `ctxcheck install-hook antigravity` (`PreInvocation`, before each model call) |
+| Cursor CLI | No session id; `CURSOR_AGENT=1` only says Cursor is running. The newest sidecar whose `cwd` is the cwd. `current_usage` as above (its fields are undocumented), else `used_percentage` × window. | `context_window.context_window_size`. No preset fallback. | Opt-in: `ctxcheck install-hook cursor` (`postToolUse`, matcher `Shell`; live-unverified) |
 
 The "Backstop" column records how a runtime gets the post-tool warning when an
 armed session goes over its gate (see "Backstops"). The other runtimes are
@@ -180,6 +180,59 @@ output, so a broken backstop never blocks a tool call.
 - The Codex hook is tested against a temp `CODEX_HOME`. It is not
   live-verified in a Codex session.
 
+**Cursor, Copilot CLI and Antigravity: `ctxcheck install-hook R`.**
+- These three are measured from the status-line sidecar, so their backstop
+  needs `install-statusline R` too. The hook reads the sidecar for the
+  payload's session id. It never reads the payload's transcript path, which
+  points at the runtime's own transcript.
+- **Cursor** (`postToolUse`): the payload's `conversation_id` names the
+  session. `session_id` is accepted too; the docs call it "same as
+  `conversation_id`". The warning goes out as
+  `{"additional_context": "..."}`, which Cursor injects after the tool
+  result.
+- **Copilot CLI** (`postToolUse`): the casing of the event key sets the
+  casing of the payload. Both are read: camelCase `sessionId`, and the
+  snake_case `session_id` sent for a PascalCase `PostToolUse` key. The
+  warning goes out as `{"additionalContext": "..."}`, which Copilot appends
+  to the tool result (capped at 10 KB).
+- **Antigravity** (`PreInvocation`): `PostToolUse` must return `{}`, so the
+  warning rides `PreInvocation`, before each model call. It goes out as
+  `{"injectSteps": [{"ephemeralMessage": "..."}]}`, a transient system
+  message. Pre- and PostInvocation payloads look identical, so the installed
+  command passes `--event PreInvocation`, and every other event gets `{}`.
+  The session id is `conversationId`.
+- When silent, all three print `{}`: their contracts parse stdout as JSON on
+  exit 0.
+- **Live-unverified.** Cursor and Copilot weren't installed when this was
+  written, so their hooks were tested only against payloads built from their
+  docs. Antigravity's contract comes from its bundled docs (agy 1.3.2). Only
+  `--dry-run` was run against the real `~/.gemini/config/hooks.json`, and it
+  left the file unchanged (sha256 checked).
+
+## Installing backstops
+
+Every installer takes `--dry-run` or `--uninstall`. `--dry-run` prints the
+diff and writes nothing. Before writing, each installer copies the file to
+`<file>.ctxcheck-<UTC stamp>.bak`, then replaces it atomically.
+
+- Re-running is a no-op. An old ctxcheck path in the command is updated in
+  place.
+- Uninstall removes only what install added. Every foreign entry (Orca's,
+  the user's) stays byte-identical.
+- A file that isn't strict JSON (comments, trailing commas) is refused.
+
+| Runtime | Command | File touched | What install adds | Undo | Trust prompt |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | none | none | The skill's frontmatter hook, registered when the skill is invoked | The session ends | None |
+| Codex CLI | `ctxcheck install-hook codex` | `$CODEX_HOME/hooks.json` (default `~/.codex`) | Appends a `hooks.PostToolUse` group: matcher `Bash`, `{"type": "command", "command": "python3 <abs ctxcheck> --hook --runtime codex", "timeout": 10}` | `--uninstall` | **Yes:** run `/hooks` in Codex and trust the entry |
+| Cursor CLI | `ctxcheck install-hook cursor` | `~/.cursor/hooks.json`, created as `{"version": 1, ...}` when missing | Appends to `hooks.postToolUse`: `{"command": "python3 <abs ctxcheck> --hook --runtime cursor", "matcher": "Shell", "timeout": 10}` | `--uninstall`. A file it created keeps `{"version": 1}`. | None for user hooks. Cursor reloads the file on save. |
+| Copilot CLI | `ctxcheck install-hook copilot` | `$COPILOT_HOME/hooks/ctxcheck.json` (default `~/.copilot`), a file of its own | `{"version": 1, "hooks": {"postToolUse": [{"type": "command", "bash": "python3 <abs ctxcheck> --hook --runtime copilot", "timeoutSec": 10}]}}`, with no matcher | `--uninstall` deletes the file once nothing else is in it | None for user hooks ("workspace admission" is for repo hooks). Restart Copilot. |
+| Antigravity `agy` | `ctxcheck install-hook antigravity` | `~/.gemini/config/hooks.json`, the global customization root | A top-level hook named `ctxcheck`: `{"PreInvocation": [{"type": "command", "command": "python3 <abs ctxcheck> --hook --runtime antigravity --event PreInvocation", "timeout": 10}]}` | `--uninstall`. A foreign hook named `ctxcheck` is refused. `"enabled": false` is kept. | None documented. Start a new `agy` session. |
+
+The backstop stays silent until the session is armed (`ctxcheck --arm`). On
+the three status-line runtimes, keep the TUI on screen so the sidecar stays
+fresh.
+
 ## Known gaps
 
 - **OpenCode window.** Custom providers configured only in `opencode.json`
@@ -193,8 +246,12 @@ output, so a broken backstop never blocks a tool call.
   - A `context_edit` is treated the same way.
 - **Status-line runtimes.**
   - Copilot and Cursor weren't installed when this was written. Their
-    readers were tested against payloads built from the sources above, not
-    against a live session.
+    readers and backstops were tested against payloads built from the
+    sources above, not against a live session.
+  - The backstop finds the sidecar by the hook payload's session id, which
+    is assumed to match the status line's id. Cursor documents this
+    (`session_id` is "same as `conversation_id`"). For Copilot and
+    Antigravity it is unconfirmed. If they differ, the hook stays silent.
   - Cursor has no session id. With two Cursor sessions in one directory, the
     most recently refreshed one is used.
   - The snapshot is only as fresh as the last redraw. A long tool call can

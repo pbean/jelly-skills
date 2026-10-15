@@ -233,8 +233,8 @@ class OtherRuntimesTest(_Tmp):
         self.assertEqual(r.returncode, 1)
         self.assertIn("context-budget skill", r.stderr)
 
-    def test_cursor_is_not_implemented_yet(self):
-        r = self.run_install(runtime="cursor")
+    def test_opencode_is_not_implemented_yet(self):
+        r = self.run_install(runtime="opencode")
         self.assertEqual(r.returncode, 1)
         self.assertIn("not implemented in this version", r.stderr)
 

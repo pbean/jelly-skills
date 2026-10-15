@@ -1,5 +1,9 @@
-"""ctxcheck --hook: silent unless an armed session is over its gate; the Claude
-and Codex output shapes; re-nagging; never failing loudly."""
+"""ctxcheck --hook: silent unless an armed session is over its gate; the Claude,
+Codex, Cursor, Copilot and Antigravity output shapes; re-nagging; never
+failing loudly.
+
+The Cursor, Copilot and Antigravity payloads are synthetic, shaped after the
+documented contracts cited in ctxlib/hook.py (none is live-verified)."""
 
 from __future__ import annotations
 
@@ -195,6 +199,196 @@ class CodexTest(_Hook):
         msg = self.context(self.hook(self.codex_payload(session=OTHER_CODEX_ID),
                                      "--runtime", "codex"))
         self.assertIn("references/coordinator-handoff.md", msg)
+
+
+SL_SESSION = "0d000000-0000-4000-8000-00000000b0b0"
+
+
+class _StatuslineHook(_Hook):
+    """An armed status-line session: a fresh sidecar written by the tee, then
+    --arm from inside the 'session' (its env var, or Cursor's cwd)."""
+    RUNTIME = ""
+    ARM_ENV: dict = {}
+
+    def setUp(self):
+        super().setUp()
+        self.work = self.tmp / "work"
+        self.work.mkdir()
+        sidecar = (helpers.FIXTURES / "statusline" / f"{self.RUNTIME}.json").read_text()
+        sidecar = sidecar.replace("__SESSION__", SL_SESSION).replace("__CWD__", str(self.work))
+        r = helpers.run_ctxcheck(["statusline-tee", "--runtime", self.RUNTIME],
+                                 self.bare_env, cwd=self.work, stdin=sidecar)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.sl_env = dict(self.bare_env, **self.ARM_ENV)
+
+    def arm_sl(self, role="worker", *extra):
+        r = helpers.run_ctxcheck(["--arm", "--role", role, "--label", LABEL, *extra],
+                                 self.sl_env, cwd=self.work)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.marker(SL_SESSION).is_file())
+
+    def assert_empty_object(self, r):
+        self.assertEqual(r.stdout, "{}\n")
+
+    def warned(self):
+        return json.loads(self.marker(SL_SESSION).read_text()).get("warnedAtPct")
+
+
+class CursorHookTest(_StatuslineHook):
+    RUNTIME = "cursor"
+    ARM_ENV = {"CURSOR_AGENT": "1"}
+
+    def cursor_payload(self, **over) -> str:
+        # https://cursor.com/docs/hooks.md: postToolUse = common fields +
+        # tool_name, tool_input, tool_output, tool_use_id, cwd, duration.
+        p = {"conversation_id": SL_SESSION, "generation_id": "gen-synthetic",
+             "model": "synthetic-model-cu", "hook_event_name": "postToolUse",
+             "cursor_version": "2026.10.08", "workspace_roots": [str(self.work)],
+             "user_email": None, "transcript_path": str(self.tmp / "no-such.jsonl"),
+             "tool_name": "Shell", "tool_input": {"command": "ls"},
+             "tool_output": "{\"stdout\": \"ok\"}", "tool_use_id": "tool-synthetic",
+             "cwd": str(self.work), "duration": 12}
+        p.update(over)
+        return json.dumps(p)
+
+    def additional_context(self, r) -> str:
+        out = json.loads(r.stdout)
+        self.assertEqual(set(out), {"additional_context"})
+        return out["additional_context"]
+
+    def test_exact_shape_explicit_and_inferred(self):
+        self.arm_sl("worker", "--gate", "1")
+        for args in (("--runtime", "cursor"), ()):
+            with self.subTest(args=args):
+                state = json.loads(self.marker(SL_SESSION).read_text())
+                self.marker(SL_SESSION).write_text(json.dumps(dict(state, warnedAtPct=None)))
+                msg = self.additional_context(self.hook(self.cursor_payload(), *args))
+                self.assertIn("68,000/272,000", msg)
+                self.assertIn("PHASE-STATUS: continuation-required", msg)
+
+    def test_session_id_alias(self):
+        self.arm_sl("coordinator", "--gate", "1")
+        p = json.loads(self.cursor_payload())
+        p["session_id"] = p.pop("conversation_id")
+        msg = self.additional_context(self.hook(json.dumps(p), "--runtime", "cursor"))
+        self.assertIn("references/coordinator-handoff.md", msg)
+
+    def test_under_gate_and_unarmed_print_empty_object(self):
+        self.assert_empty_object(self.hook(self.cursor_payload(), "--runtime", "cursor"))
+        self.arm_sl("worker")  # 25% against 75% (272K window)
+        self.assert_empty_object(self.hook(self.cursor_payload(), "--runtime", "cursor"))
+        self.assert_empty_object(self.hook("not json", "--runtime", "cursor"))
+
+
+class CopilotHookTest(_StatuslineHook):
+    RUNTIME = "copilot"
+    ARM_ENV = {"COPILOT_AGENT_SESSION_ID": SL_SESSION}
+
+    def camel(self) -> str:
+        # docs.github.com/en/copilot/reference/hooks-configuration, event key
+        # postToolUse (camelCase).
+        return json.dumps({
+            "sessionId": SL_SESSION, "timestamp": 1792000000000, "cwd": str(self.work),
+            "toolName": "bash", "toolArgs": {"command": "ls"},
+            "toolResult": {"resultType": "success", "textResultForLlm": "ok"}})
+
+    def pascal(self) -> str:
+        # Event key PostToolUse (PascalCase): VS Code-style snake_case payload.
+        return json.dumps({
+            "hook_event_name": "PostToolUse", "session_id": SL_SESSION,
+            "timestamp": "2026-10-15T12:00:00.000Z", "cwd": str(self.work),
+            "tool_name": "bash", "tool_input": {"command": "ls"},
+            "tool_result": {"result_type": "success", "text_result_for_llm": "ok"}})
+
+    def additional_context(self, r) -> str:
+        out = json.loads(r.stdout)
+        self.assertEqual(set(out), {"additionalContext"})
+        return out["additionalContext"]
+
+    def test_both_casings_explicit_and_inferred(self):
+        self.arm_sl("planner", "--gate", "1")
+        for casing in ("camel", "pascal"):
+            for args in (("--runtime", "copilot"), ()):
+                with self.subTest(casing=casing, args=args):
+                    state = json.loads(self.marker(SL_SESSION).read_text())
+                    self.marker(SL_SESSION).write_text(
+                        json.dumps(dict(state, warnedAtPct=None)))
+                    msg = self.additional_context(self.hook(getattr(self, casing)(), *args))
+                    self.assertIn("61,000/160,000", msg)
+                    self.assertIn("references/planner.md", msg)
+
+    def test_under_gate_and_unarmed_print_empty_object(self):
+        self.assert_empty_object(self.hook(self.camel(), "--runtime", "copilot"))
+        self.arm_sl("worker")  # 38.1% against 75%
+        self.assert_empty_object(self.hook(self.camel(), "--runtime", "copilot"))
+        self.assert_empty_object(self.hook(self.pascal()))
+
+    def test_claude_payload_is_not_taken_for_copilot(self):
+        # Claude's snake_case payload has transcript_path and tool_response.
+        from ctxlib import hook
+        self.assertEqual(hook._infer(json.loads(self.payload())), "claude")
+        self.assertEqual(hook._infer(json.loads(self.pascal())), "copilot")
+
+
+class AntigravityHookTest(_StatuslineHook):
+    RUNTIME = "antigravity"
+    ARM_ENV = {"ANTIGRAVITY_CONVERSATION_ID": SL_SESSION}
+
+    def common(self) -> dict:
+        # agy-customizations/docs/hooks.md: camelCase common fields.
+        return {"conversationId": SL_SESSION, "workspacePaths": [str(self.work)],
+                "transcriptPath": str(self.work / ".gemini/antigravity-cli/transcript.jsonl"),
+                "artifactDirectoryPath": str(self.work / ".gemini/antigravity-cli/artifacts"),
+                "modelName": "auto"}
+
+    def pre_invocation(self) -> str:
+        return json.dumps(dict(self.common(), invocationNum=3, initialNumSteps=10))
+
+    def post_tool_use(self) -> str:
+        return json.dumps(dict(self.common(), stepIdx=5))
+
+    def ephemeral(self, r) -> str:
+        out = json.loads(r.stdout)
+        self.assertEqual(set(out), {"injectSteps"})
+        self.assertEqual(len(out["injectSteps"]), 1)
+        self.assertEqual(set(out["injectSteps"][0]), {"ephemeralMessage"})
+        return out["injectSteps"][0]["ephemeralMessage"]
+
+    def test_pre_invocation_injects_an_ephemeral_message(self):
+        self.arm_sl("worker", "--gate", "1")
+        for args in (("--runtime", "antigravity", "--event", "PreInvocation"),
+                     ("--event", "PreInvocation")):
+            with self.subTest(args=args):
+                state = json.loads(self.marker(SL_SESSION).read_text())
+                self.marker(SL_SESSION).write_text(json.dumps(dict(state, warnedAtPct=None)))
+                msg = self.ephemeral(self.hook(self.pre_invocation(), *args))
+                self.assertIn("125,000/1,000,000", msg)
+                self.assertIn("PHASE-STATUS: continuation-required", msg)
+
+    def test_every_other_event_gets_an_empty_object_and_keeps_the_warning(self):
+        self.arm_sl("worker", "--gate", "1")
+        cases = {
+            "PostToolUse": (self.post_tool_use(), ("--event", "PostToolUse")),
+            "PostInvocation": (self.pre_invocation(), ("--event", "PostInvocation")),
+            "no event named": (self.pre_invocation(), ()),
+            "Stop": (json.dumps(dict(self.common(), executionNum=1,
+                                     terminationReason="model_stop")), ("--event", "Stop")),
+        }
+        for name, (stdin, extra) in cases.items():
+            with self.subTest(name):
+                self.assert_empty_object(self.hook(stdin, "--runtime", "antigravity", *extra))
+                self.assertIsNone(self.warned())  # not consumed by a silent event
+        self.ephemeral(self.hook(self.pre_invocation(), "--runtime", "antigravity",
+                                 "--event", "PreInvocation"))
+        self.assertEqual(self.warned(), 12.5)
+
+    def test_under_gate_unarmed_and_garbage_print_empty_object(self):
+        args = ("--runtime", "antigravity", "--event", "PreInvocation")
+        self.assert_empty_object(self.hook(self.pre_invocation(), *args))
+        self.arm_sl("worker")  # 12.5% against 28% (1M window)
+        self.assert_empty_object(self.hook(self.pre_invocation(), *args))
+        self.assert_empty_object(self.hook("not json {", *args))
+        self.assert_empty_object(self.hook("", *args))
 
 
 if __name__ == "__main__":

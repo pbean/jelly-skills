@@ -57,3 +57,16 @@ and each skill is versioned independently in its `SKILL.md` metadata.
   - Codex: `ctxcheck install-hook codex [--dry-run|--uninstall]` appends a
     `PostToolUse` group to `$CODEX_HOME/hooks.json`. Uninstall leaves every
     other entry byte-identical; the hook must be trusted in `/hooks`.
+- Added opt-in backstops for Cursor CLI, Copilot CLI and Antigravity.
+  - `ctxcheck install-hook cursor|copilot|antigravity [--dry-run|--uninstall]`
+    edits `~/.cursor/hooks.json` (`postToolUse`), creates
+    `$COPILOT_HOME/hooks/ctxcheck.json` (`postToolUse`), or adds a hook named
+    `ctxcheck` to `~/.gemini/config/hooks.json` (`PreInvocation`). Each
+    merges into the existing file, is idempotent, and leaves foreign entries
+    byte-identical on uninstall.
+  - `--hook` reads each runtime's payload (Copilot in both casings) and
+    answers in its shape: Cursor `additional_context`, Copilot
+    `additionalContext`, Antigravity `injectSteps` `ephemeralMessage`. It
+    prints `{}` when silent. Antigravity warns only on `PreInvocation`
+    (`--event`), because `PostToolUse` must return `{}`.
+  - These are built from the documented contracts and are not live-verified.
