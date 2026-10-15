@@ -26,7 +26,14 @@ cwd: /abs/path/to/repo
   phase sessions run; `branch` is the program's shared branch.
 - Optional keys: `model` (a provider model id, passed to the backend only when present —
   omit it for agents that take their model from their own config, e.g. `opencode`),
-  `max_consecutive_failures` (default 3), `continuation_cap` (default 3).
+  `max_consecutive_failures` (default 3), `continuation_cap` (default 3), and two context
+  gates, each a percentage of the agent's context window:
+  - `worker_handoff_pct`: the gate each phase worker arms with (§7).
+  - `coordinator_handoff_pct`: the gate the runner arms itself with.
+
+  When a gate key is absent, the gate is derived from the measured window per the
+  context-budget skill's role gates (`ctxcheck --role worker` or `--role coordinator`).
+  Set one only to override that band.
 - The runner parses only the **first** `run-config` fence. Unknown keys are ignored, not
   errors.
 - If the block or a required key is missing, the runner synthesizes defaults (`agent` = the
@@ -98,7 +105,7 @@ Phases run strictly sequentially, so ownership windowing is the entire concurren
   or another phase's tag. It re-reads the plan before editing and edits surgically.
 - The **runner** writes only between phases: it sets `[running]` before dispatch and does
   not touch the plan again until that worker is gone. On failure paths it sets `[blocked]`
-  and appends a `> **Blocked (date):** <cause, dispatch id, generation>` blockquote.
+  and appends a `> **Blocked (date):** <cause, dispatch id, leg>` blockquote.
 - **Backfill:** if a worker reported `PHASE-STATUS: complete` but forgot the plan edit, the
   runner flips the tag and writes a minimal outcome record from the `worker_done` body,
   marked `(recorded by runner)`, and logs a warning in `run-log.md`. A completed phase is
@@ -144,7 +151,23 @@ The runner assembles each dispatched phase file as: backend first-contact preamb
 orientation prefix → the raw prompt verbatim → this suffix → backend completion paragraph.
 **The wrapper lives only in the phase file, never in the plan's fences** — hand-pasted
 prompts must stay free of orchestration noise. The backend paragraphs come from the
-dispatch reference; the two backend-free paragraphs here are canonical:
+dispatch reference; the backend-free paragraphs here are canonical.
+
+**Substitutions.** The runner fills the placeholders once per phase file:
+
+- `<abs plan path>`, `<literal heading line>`, `N` (phase number), `<runs dir>` and `<g>`
+  (this leg's number: 1 for the first worker, then 2, 3, … for continuations).
+- `<ABS_CTXCHECK>`: the absolute path of `ctxcheck`. The runner resolves it **once, at run
+  start**, from the sibling skill, `../context-budget/scripts/ctxcheck` relative to the
+  run-plan skill directory. It records the path in `run-state.json` as `ctxcheck_path` and
+  reuses it for every phase file.
+- `[--gate <worker_handoff_pct>]`: becomes `--gate <value>` when run-config sets
+  `worker_handoff_pct`. Otherwise it is deleted, and ctxcheck derives the gate.
+
+If the context-budget skill isn't installed beside run-plan, the run goes ahead without
+budgets. The runner then leaves out the **Context budget** and **Disarm** paragraphs and
+the over-budget paragraph's first sentence (the pointer to `references/worker.md`), and
+keeps the rest.
 
 > **Working style:** use subagents for research, exploration, and mechanical parallelizable
 > work; keep the main thread for edits and verification. (If the prompt above already says
@@ -164,12 +187,29 @@ dispatch reference; the two backend-free paragraphs here are canonical:
 > nothing else in the plan: not the fenced prompts (including this phase's), not other
 > phases' sections or tags, not the run-config block.
 >
-> **If you cannot finish within your context window:** stop at a safe point between steps —
-> never mid-edit, never with a test-ablation still reverted. Leave your edits uncommitted in
-> the worktree. Write (or append to, if you are a later generation)
-> `<runs dir>/phase-N-continuation.md` for a successor that has this same prompt and no
-> memory of your session: which steps are landed and which remain, `git status --porcelain`
-> output, test pass/fail state, anything you learned that **contradicts this prompt**, and
-> explicitly what you have **not** verified — everything you learned and did not write down
-> is lost. Then report completion as the dispatch instructions below describe, with
-> `PHASE-STATUS: continuation-required` as the first line of the body.
+> **Context budget:** this session measures its own context. On Claude Code, first invoke
+> the `context-budget` skill, which registers its backstop hook. On any other runtime, run
+> the commands below directly. Before your first edit, arm:
+> `python3 <ABS_CTXCHECK> --arm --role worker --label "session N of <abs plan path>" [--gate <worker_handoff_pct>]`.
+> After each numbered step lands, and once more before starting any ablation check, run
+> `python3 <ABS_CTXCHECK>` and read its exit code. 0 means carry on. 3 means this runtime
+> can't be measured: say "no context budget on this runtime" once and carry on. 10, or a
+> backstop warning, means you are over budget: don't start the next numbered step; follow
+> the paragraph below.
+>
+> **If you are over budget, or cannot finish within your context window:** follow the
+> context-budget skill's `references/worker.md` (two directories up from `<ABS_CTXCHECK>`)
+> for the full procedure. Stop at a safe point between steps — never mid-edit, never with a
+> test-ablation still reverted. Leave your edits uncommitted in the worktree, and save a
+> patch backup to `<runs dir>/phase-N-wip-leg<g>.patch`. Write (or append to, under a
+> `## Leg <g>` heading, if you are a later leg) `<runs dir>/phase-N-continuation.md` for a
+> successor that has this same prompt and no memory of your session: which steps are
+> landed and which remain, `git status --porcelain` output, test pass/fail state, anything
+> you learned that **contradicts this prompt**, and explicitly what you have **not**
+> verified — everything you learned and did not write down is lost. Then report completion
+> as the dispatch instructions below describe, with `PHASE-STATUS: continuation-required`
+> as the first line of the body.
+>
+> **Disarm on both exits:** run `python3 <ABS_CTXCHECK> --disarm` after the commit and
+> plan update when the phase completes, or just before reporting when you stop for a
+> continuation.

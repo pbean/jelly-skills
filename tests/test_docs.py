@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 from functools import lru_cache
@@ -13,7 +15,11 @@ SKILLS = helpers.REPO / "skills"
 FLAG = re.compile(r"--[a-z][a-z0-9-]*")
 SUBCOMMAND = re.compile(r"[a-z]+(?:-[a-z]+)+")
 # A ctxcheck mention runs to the end of its code span or shell command.
-MENTION = re.compile(r"\bctxcheck\b[\"'>]?([^;|&#`\n)]*)")
+# run-plan's wrapper writes the path as a placeholder the runner fills in.
+MENTION = re.compile(r"(?:\bctxcheck\b[\"'>]?|<ABS_CTXCHECK>)([^;|&#`\n)]*)")
+# An Orca verb follows its command group: `<orca> orchestration worker-start`,
+# `orca-ide orchestration check`, or a bare `terminal read` in a code span.
+ORCA_VERB = re.compile(r"(?<![\w-])(orchestration|terminal)\s+([a-z][a-z0-9-]*)")
 FENCE = re.compile(r"^\s*(```|~~~)")
 INLINE = re.compile(r"`([^`\n]+)`")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
@@ -145,6 +151,83 @@ class FlagsExistTest(unittest.TestCase):
                 for flag in FLAG.findall(span):
                     with self.subTest(file=path.name, flag=flag):
                         self.assertIn(flag, known)
+
+
+def _wrapper_suffix() -> str:
+    """plan-format.md §7: the canonical wrapper the runner puts in every phase file."""
+    text = (SKILLS / "run-plan" / "references" / "plan-format.md").read_text()
+    start = text.index("## 7. Wrapper suffix")
+    end = text.find("\n## ", start + 1)
+    return text[start:] if end == -1 else text[start:end]
+
+
+class WrapperBudgetTest(unittest.TestCase):
+    """The wrapper's ctxcheck commands are real ctxcheck invocations."""
+
+    def test_wrapper_arms_checks_and_disarms(self):
+        found = [set(FLAG.findall(rest)) for snippet in _code_snippets(_wrapper_suffix())
+                 for rest in MENTION.findall(snippet)]
+        flags = set().union(*found) if found else set()
+        for flag in ("--arm", "--role", "--label", "--gate", "--disarm"):
+            self.assertIn(flag, flags)
+        self.assertIn(set(), found, "the wrapper has no plain boundary check")
+        # The same scan feeds FlagsExistTest; check here too so a wrapper
+        # flag can't hide behind an unrelated subTest.
+        main = set(FLAG.findall(_help()))
+        self.assertLessEqual(flags, main)
+
+
+@lru_cache(maxsize=None)
+def _orca_commands(group: str) -> dict:
+    """{verb: summary} from `orca-ide <group> --help`'s Commands block."""
+    r = subprocess.run(["orca-ide", group, "--help"], capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, timeout=60)
+    commands, listing = {}, False
+    for line in (r.stdout + r.stderr).splitlines():
+        if line.strip() == "Commands:":
+            listing = True
+            continue
+        m = re.match(r"^\s+([a-z][a-z0-9-]*)\s{2,}(.*)$", line)
+        if listing and m:
+            commands[m.group(1)] = m.group(2)
+        elif listing and line.strip():
+            listing = False
+    return commands
+
+
+def orca_verbs() -> list[tuple[Path, str, str]]:
+    """(file, group, verb) for each Orca command run-plan's docs name in code."""
+    found = []
+    for path in sorted((SKILLS / "run-plan").rglob("*.md")):
+        _front, code, prose = _split(path.read_text())
+        for snippet in [*code, *INLINE.findall(prose)]:
+            for group, verb in ORCA_VERB.findall(snippet):
+                found.append((path, group, verb))
+    return found
+
+
+class OrcaVerbsTest(unittest.TestCase):
+    """Every orchestration and terminal verb run-plan names is a live one."""
+
+    def test_scanner_finds_verbs(self):
+        verbs = {(g, v) for _p, g, v in orca_verbs()}
+        self.assertTrue(verbs, "no Orca verbs extracted from skills/run-plan")
+        self.assertIn(("orchestration", "worker-start"), verbs)
+        self.assertIn(("terminal", "send"), verbs)
+
+    @unittest.skipIf(shutil.which("orca-ide") is None,
+                     "orca-ide is not installed; can't check Orca verbs")
+    def test_verbs_exist(self):
+        found = orca_verbs()
+        self.assertTrue(found, "no Orca verbs extracted from skills/run-plan")
+        for group in ("orchestration", "terminal"):
+            self.assertTrue(_orca_commands(group), f"orca-ide {group} --help listed nothing")
+        for path, group, verb in found:
+            with self.subTest(file=str(path.relative_to(helpers.REPO)), verb=f"{group} {verb}"):
+                commands = _orca_commands(group)
+                self.assertIn(verb, commands, f"orca-ide {group} has no verb {verb!r}")
+                self.assertFalse(commands[verb].startswith("Retired"),
+                                 f"orca-ide {group} {verb} is retired")
 
 
 def frontmatter(path: Path) -> tuple[dict, dict]:

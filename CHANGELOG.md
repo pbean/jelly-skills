@@ -104,6 +104,42 @@ and each skill is versioned independently in its `SKILL.md` metadata.
     named in `skills/**/*.md` exists, that each SKILL.md frontmatter has the
     required keys, and that relative links in SKILL.md files resolve.
 
+### run-plan
+
+- Modernized the Orca dispatch for Orca 1.4.219+, and phase continuations
+  now run as new tasks (1.1.0).
+  - `references/dispatch-orca.md` §§0-8 were rewritten. A phase runs as legs,
+    and each leg is its own task, created lazily just before its dispatch
+    (nothing is pre-built as a chain). The start receipt's `turnStart` drives
+    first contact: `observed` skips the heartbeat wait, and only `permission`
+    or `unsupported` keep the heartbeat, one look and one re-delivery.
+    `outcome_unknown` gets inspected and settled explicitly. Waits use
+    `--timeout-ms 900000`; after three empty waits the coordinator runs
+    `worker-list --include-remote` and acts only on positive evidence.
+    Workers are read with `worker-read --source auto`, never `terminal read`.
+    A failed attempt retries on the same task with `--retry-of` and restated
+    placement, and the run ends only once no reclaimable worker is left. It
+    also documents that a plain `run-use` from another terminal rebinds the
+    Run and fences the previous coordinator.
+  - The `worker_done` body puts `PHASE-STATUS:` on its first line, then the
+    three-sentence summary. Workers check for coordinator follow-ups at
+    checkpoints and before `worker_done`.
+  - `references/plan-format.md` gained the optional run-config keys
+    `worker_handoff_pct` and `coordinator_handoff_pct`. The wrapper suffix
+    now has workers measure themselves: invoke context-budget on Claude Code,
+    arm as `--role worker`, check after each numbered step, follow
+    context-budget's `references/worker.md` when over budget (with a
+    per-leg patch backup), and disarm on both exits. The runner resolves
+    `<ABS_CTXCHECK>` once at run start from the sibling skill, and runs
+    without budgets (after one warning) if that skill is missing.
+  - SKILL.md: run-state.json records per-phase `legs` and `ctxcheck_path`,
+    and every write to it is atomic. The loop, failure machine and resume
+    work in terms of legs.
+  - `tests/test_docs.py` checks that every `orchestration` and `terminal`
+    verb named in run-plan's docs is listed, and not retired, in
+    `orca-ide`'s help. It skips that check when `orca-ide` is absent. It
+    also checks the wrapper's ctxcheck flags.
+
 ### session-plan
 
 - The planner measures itself (1.1.0). It invokes context-budget at the
