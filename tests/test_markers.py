@@ -52,12 +52,12 @@ class ArmTest(_Armed):
         self.assertEqual(m["role"], "worker")
         self.assertEqual(m["label"], LABEL)
         self.assertEqual(m["contextWindow"], 1_000_000)
-        self.assertEqual(m["handoffPct"], 28.0)
+        self.assertEqual(m["handoffPct"], 25.0)
         self.assertIsNone(m["warnedAtPct"])
         time.strptime(m["armedAt"], "%Y-%m-%dT%H:%M:%SZ")
 
     def test_derived_gate_per_role_on_1m(self):
-        for role, gate in (("worker", 28.0), ("planner", 28.0), ("coordinator", 26.0)):
+        for role, gate in (("worker", 25.0), ("planner", 25.0), ("coordinator", 25.0)):
             with self.subTest(role=role):
                 self.arm("--role", role)
                 self.assertEqual(self.marker()["role"], role)
@@ -104,7 +104,7 @@ class MarkerDefaultsTest(_Armed):
         self.assertEqual(out["role"], "coordinator")
         self.assertEqual(out["context_window"], 700_000)
         self.assertEqual(out["window_source"], "marker")
-        self.assertEqual(out["threshold_percentage"], 26.0)
+        self.assertEqual(out["threshold_percentage"], 25.0)
         self.assertEqual(out["threshold_source"], "marker")
         self.assertFalse(out["over_threshold"])
 

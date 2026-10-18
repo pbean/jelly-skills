@@ -14,7 +14,7 @@ compatibility: >-
   other runtime ctxcheck reports that the session cannot be measured (exit 3).
 metadata:
   author: pbean
-  version: "1.0.0"
+  version: "1.1.0"
 hooks:
   PostToolUse:
     - matcher: "Bash"
@@ -176,16 +176,32 @@ With `--role` (or a marker), the gate is derived from the measured window:
 
 | Window | worker / planner | coordinator |
 | --- | --- | --- |
-| 600K or more | 28% (~280K on 1M) | 26% (~260K on 1M) |
+| 600K or more | 25% (~250K on 1M) | 25% (~250K on 1M) |
 | 150K to 600K | 75% | 75% |
 | smaller | 80% | 80% |
 
 What rots a session is the *absolute* context it carries, not the fraction of
-its window. A single percentage can't serve every runtime: 28% of a 1M window
-is a whole phase's work, while 28% of Codex's ~258K window is 72K, which would
+its window. A single percentage can't serve every runtime: 25% of a 1M window
+is a whole phase's work, while 25% of Codex's ~258K window is 65K, which would
 stop a worker before it finished orienting. So the bands land every session at
-roughly 150-280K tokens. `--gate` always wins over the band.
-`ctxcheck --list-presets` prints the known windows and bands.
+roughly 150-250K tokens. `--gate` always wins over the band.
+`ctxcheck --list-presets` prints the known windows and the bands in effect.
+
+To change the bands for every session, the user writes
+`${CTXCHECK_HOME:-${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck}/bands.json`,
+which replaces the table above. `coordinator` defaults to `worker`, and one
+band must have `min_window` 0:
+
+```json
+[
+  {"min_window": 600000, "worker": 25, "coordinator": 25},
+  {"min_window": 150000, "worker": 75},
+  {"min_window": 0, "worker": 80}
+]
+```
+
+A marker keeps the gate it was armed with, so an edit applies from the next
+`--arm`. A malformed file is an error (exit 1), never a silent fallback.
 
 With no `--role`, no `--gate` and no marker, ctxcheck only reports usage.
 

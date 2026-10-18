@@ -109,9 +109,13 @@ from each runtime's documented hook contract and are not live-verified yet. The 
 matrix, versions and caveats are in
 [`skills/context-budget/references/runtimes.md`](skills/context-budget/references/runtimes.md).
 
-Gates are derived from the measured window per role: 28% for workers and planners and 26%
-for the coordinator on a window of 600K or more, 75% on 150K or more, 80% below that. A
-plan's run-config can override them with `worker_handoff_pct` and `coordinator_handoff_pct`.
+Gates are derived from the measured window per role: 25% on a window of 600K or more
+(~250K on 1M), 75% on 150K or more (Claude's 200K, Codex's ~258K), 80% below that. To
+change the bands everywhere, write
+`${CTXCHECK_HOME:-${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck}/bands.json`
+(format in [`skills/context-budget/SKILL.md`](skills/context-budget/SKILL.md#gates));
+`ctxcheck --list-presets` shows the bands in effect. A plan's run-config can override them
+per run with `worker_handoff_pct` and `coordinator_handoff_pct`.
 
 ### Opt-in installers
 

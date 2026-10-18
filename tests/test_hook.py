@@ -69,7 +69,7 @@ class SilenceTest(_Hook):
         self.assert_silent(self.hook(self.payload(), "--runtime", "claude"))
 
     def test_armed_under_gate_is_silent(self):
-        self.arm("worker")  # 4.3% against 28%
+        self.arm("worker")  # 4.3% against 25%
         self.assert_silent(self.hook(self.payload(), "--runtime", "claude"))
 
     def test_bad_input_exits_0_silently(self):
@@ -127,7 +127,7 @@ class ClaudeMessageTest(_Hook):
         self.context(self.hook(self.payload()))
 
     def test_payload_transcript_path_is_preferred(self):
-        self.arm("worker")  # gate 28%; the home transcript is at 4.3%
+        self.arm("worker")  # gate 25%; the home transcript is at 4.3%
         elsewhere = self.tmp / "elsewhere" / f"{helpers.CLAUDE_SESSION}.jsonl"
         elsewhere.parent.mkdir()
         elsewhere.write_text(json.dumps({
@@ -386,7 +386,7 @@ class AntigravityHookTest(_StatuslineHook):
     def test_under_gate_unarmed_and_garbage_print_empty_object(self):
         args = ("--runtime", "antigravity", "--event", "PreInvocation")
         self.assert_empty_object(self.hook(self.pre_invocation(), *args))
-        self.arm_sl("worker")  # 12.5% against 28% (1M window)
+        self.arm_sl("worker")  # 12.5% against 25% (1M window)
         self.assert_empty_object(self.hook(self.pre_invocation(), *args))
         self.assert_empty_object(self.hook("not json {", *args))
         self.assert_empty_object(self.hook("", *args))

@@ -7,6 +7,20 @@ and each skill is versioned independently in its `SKILL.md` metadata.
 
 ## [Unreleased]
 
+### context-budget 1.1.0
+
+#### Changed
+
+- The default gate on windows of 600K or more is now 25% for every role
+  (~250K used on a 1M window), down from 28% for workers and planners and 26%
+  for the coordinator. Windows of 150K-600K stay at 75%, smaller ones at 80%.
+
+#### Added
+
+- `${CTXCHECK_HOME:-${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck}/bands.json`
+  replaces the default role bands for every session. `ctxcheck --list-presets`
+  shows which bands are in effect, and a malformed file exits 1.
+
 ## 2026-10-15 — context-budget 1.0.0, run-plan 1.2.0, session-plan 1.1.0
 
 The context-budget program: agent sessions measure their own context, phase

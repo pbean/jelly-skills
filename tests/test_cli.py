@@ -52,7 +52,7 @@ class JsonShapeTest(_Claude):
     def test_role_derives_threshold(self):
         out = self.run_json("--role", "coordinator")
         self.assertEqual(out["role"], "coordinator")
-        self.assertEqual(out["threshold_percentage"], 26.0)
+        self.assertEqual(out["threshold_percentage"], 25.0)
         self.assertFalse(out["over_threshold"])
 
 
@@ -94,8 +94,36 @@ class ListPresetsTest(unittest.TestCase):
             r = helpers.run_ctxcheck(["--list-presets"], helpers.clean_env(tmp))
         self.assertEqual(r.returncode, 0, r.stderr)
         for word in ("claude-1m", "claude-200k", "codex-272k-effective",
-                     "worker", "planner", "coordinator", "26.0%", "28.0%", "75.0%", "80.0%"):
+                     "worker", "planner", "coordinator", "25.0%", "75.0%", "80.0%", "built-in"):
             self.assertIn(word, r.stdout)
+
+
+class BandsFileCliTest(_Claude):
+    def write_bands(self, text: str):
+        home = Path(self.env["CTXCHECK_HOME"])
+        home.mkdir(parents=True, exist_ok=True)
+        (home / "bands.json").write_text(text, encoding="utf-8")
+
+    def test_bands_file_sets_the_derived_gate(self):
+        self.write_bands('[{"min_window": 0, "worker": 2}]')
+        r = helpers.run_ctxcheck(["--json", "--role", "worker"], self.env)
+        self.assertEqual(r.returncode, 10, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["threshold_percentage"], 2.0)
+        self.assertIn("bands.json", out["threshold_source"])
+
+    def test_list_presets_shows_the_file(self):
+        self.write_bands('[{"min_window": 0, "worker": 42, "note": "custom"}]')
+        r = helpers.run_ctxcheck(["--list-presets"], self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("bands.json", r.stdout)
+        self.assertIn("42.0%", r.stdout)
+
+    def test_malformed_bands_file_exits_1(self):
+        self.write_bands('[{"min_window": 600000, "worker": 25}]')
+        r = helpers.run_ctxcheck(["--role", "worker"], self.env)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("min_window 0", r.stderr)
 
 
 class UsageErrorTest(unittest.TestCase):

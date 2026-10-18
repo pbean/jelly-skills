@@ -41,6 +41,7 @@ Exit codes:
 Env:
     CTXCHECK_WINDOW   window size in tokens; overrides discovery
     CTXCHECK_PRESET   preset used when nothing is discovered
+    CTXCHECK_HOME/bands.json  replaces the default role bands (--list-presets shows them)
     CTXCHECK_HOME     state dir (default ${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck)
     CODEX_HOME        Codex state root (default ~/.codex)
     XDG_DATA_HOME     OpenCode's opencode.db lives under it (default ~/.local/share)
@@ -181,9 +182,12 @@ def list_presets() -> int:
     for name, (size, why) in gates.PRESETS.items():
         mark = " (default)" if name == gates.DEFAULT_PRESET else ""
         print(f"  {name:<{width}}  {size:>9,}  {why}{mark}")
+    bands, source = gates.load_bands()
     print("\n  default gate per role, derived from the window (--gate overrides):")
+    print(f"  bands: {source}" + ("" if source != "built-in"
+                                 else f" (write {gates.bands_path()} to change them)"))
     print(f"    {'':19}   {'worker':>7} {'planner':>7} {'coordinator':>11}")
-    for floor, worker_pct, coord_pct, why in gates.BANDS:
+    for floor, worker_pct, coord_pct, why in bands:
         print(f"    window >= {floor:>9,}   {worker_pct:>6}% {worker_pct:>6}% "
               f"{coord_pct:>10}%   {why}")
     return EXIT_OK

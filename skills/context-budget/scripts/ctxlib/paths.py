@@ -1,6 +1,7 @@
 """Where ctxcheck keeps mutable state.
 
     ${CTXCHECK_HOME:-${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck}
+        bands.json                             optional: replaces the default role bands
         markers/<session>.json                 armed sessions
         statusline/<runtime>/<session>.json    status-line sidecar snapshots
 
