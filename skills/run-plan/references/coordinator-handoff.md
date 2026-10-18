@@ -207,8 +207,13 @@ Then, in order:
    says, with the inherited gate (`coordinator_handoff_pct`, when set).
 7. **Resume** at the first non-`[done]` phase, or at the mid-continuation leg the note
    names, keeping each phase's failure counter. Don't re-plan, and don't re-dispatch a
-   phase the records show as done.
+   phase the records show as done. **Don't check at the boundary you resume at**: your
+   predecessor already checked it, and that check is why you exist. Dispatch first; your
+   first check is at the next boundary.
 
 You inherit the same budget and start at a few percent, not zero: reading the note and
 the records costs something. Check at your own boundaries and hand off again when you
 cross the gate. A third generation is fine, and far cheaper than one bad acceptance.
+Skipping the inherited boundary is what guarantees each generation dispatches at least
+once. Without it, a successor whose takeover alone crosses the gate would hand off again
+before doing anything, and so would the next one.

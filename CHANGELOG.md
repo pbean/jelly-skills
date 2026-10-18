@@ -34,6 +34,21 @@ stubs that load a version-matched guide from the binary.
 - Task-list reconciliation uses `task-list --brief`, and the reclaimable sweep
   follows `page.nextCursor`.
 
+#### Fixed
+
+- A successor coordinator no longer checks its budget at the boundary it resumes
+  at. Its predecessor already checked it, so a successor whose takeover alone
+  crossed the gate handed off again before dispatching anything, and so did the
+  next one.
+
+### Tests
+
+- The live smoke kit's fixture plan has three phases, so a run now covers two
+  successions (generation 1 to 2 mid-phase, 2 to 3 at a phase boundary) and a
+  last generation that finishes instead of handing off. Its README covers
+  Claude Code's folder-trust prompt and records plain `run-use` fencing as
+  verified against Orca 1.4.229.
+
 ### session-plan 1.1.1
 
 - The plan template documents the optional `effort` run-config key.

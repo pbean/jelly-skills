@@ -7,11 +7,14 @@ can't cover the parts that only happen inside a real Orca run:
   new Task;
 - a coordinator that goes over budget, launches a **successor coordinator** in a new
   terminal, confirms the takeover, and stops;
-- a successor that rebinds the Run, finishes the plan, and disarms.
+- a successor that rebinds the Run, goes over budget itself and hands off to a **third
+  generation**;
+- a last generation that finishes the plan instead of handing off again, and disarms.
 
-This kit drives exactly that path with a 2-phase dummy plan, [`smoke-plan.md`](smoke-plan.md),
-whose gates are both 1%. It is a manual test: it starts real Orca workers and costs a few
-real agent sessions. Expect it to take 10-20 minutes.
+This kit drives exactly that path with a 3-phase dummy plan, [`smoke-plan.md`](smoke-plan.md),
+whose gates are both 1%. Nothing has to fill up: every session is over 1% from its first
+turn. It is a manual test: it starts real Orca workers and costs three coordinator and four
+worker sessions, all short. Expect it to take 5-15 minutes.
 
 The commands below work in bash, zsh and fish. Run them from the jelly-skills checkout.
 
@@ -54,6 +57,10 @@ GNOME screen reader.
    launch-command`), so an unattended run needs something like
    `claude --dangerously-skip-permissions`. Without it, the successor stops at a permission
    prompt, and the predecessor tells you so and does not re-send.
+
+   A freshly created scratch repo also shows Claude Code's folder-trust dialog, whose
+   default is **No, exit**. Pick "Yes, I trust this folder". Successors start in the same
+   folder, so they skip it.
 3. Run:
 
    ```
@@ -68,35 +75,43 @@ GNOME screen reader.
 In order:
 
 1. **Coordinator generation 1 arms itself** at a 1% gate (`--role coordinator --gate 1`)
-   and dispatches phase 1, leg 1, as a Task titled like "Session 1 of 2 (leg 1)".
+   and dispatches phase 1, leg 1, as a Task titled like "Session 1 of 3 (leg 1)".
 2. **The leg-1 worker stops after step 1.** Its `worker_done` body starts with
    `PHASE-STATUS: continuation-required`. In `~/.claude/plans/runs/jelly-smoke/` you find
    `phase-1-continuation.md` and `phase-1-wip-leg1.patch`. In the scratch repo,
    `notes.txt` has one line and is **uncommitted**.
-3. **Generation 1 hands off.** Its boundary check exits 10 with phase 1's second leg and
-   phase 2 still left. It writes `coordinator-handoff.md` in the runs dir, and
+3. **Generation 1 hands off.** Its boundary check exits 10 with phase 1's second leg,
+   phase 2 and phase 3 still left. It writes `coordinator-handoff.md` in the runs dir, and
    `run-state.json` shows `takeover_pending: 2` and a `handoffs[]` entry for generation 1.
 4. **A successor terminal appears** in the same worktree, titled
    "run-plan coordinator gen 2", and receives one line of prompt.
-5. **The predecessor confirms the takeover and stops.** It reports in one paragraph
-   (generation 2, the percentage, the phase, the terminal) that the takeover is confirmed,
-   either because it was fenced (`consumer_fenced` / `run_required`) or because
-   `run-state.json` shows the successor's `takeover` record. Then it ends its turn and
-   dispatches nothing more.
+5. **The predecessor confirms the takeover and stops.** Its takeover wait fails with
+   `consumer_fenced` ("This coordinator terminal is no longer bound to Run …"), or
+   `run-state.json` shows the successor's `takeover` record. It reports in one paragraph
+   (generation 2, the percentage, the phase, the terminal), ends its turn and dispatches
+   nothing more.
 6. **Generation 2 takes over.** `run-state.json` shows
    `takeover: {generation: 2, at: …}`, `coordinator_generation: 2` and
-   `takeover_pending: null`. It does not ask you to confirm the run-config again.
-7. **Phase 1 continues as a new Task.** Leg 2 is a second Task ("Session 1 of 2 (leg 2)")
-   that depends on leg 1's completed Task. Phase 1's `legs` in `run-state.json` has two
-   entries. Leg 2 reads the continuation note, adds step 2, and makes the phase's only
-   commit, `smoke: phase 1`.
-8. **Generation 2 finishes instead of handing off again.** Its next check is also over 1%,
-   but only the last phase is left, so it logs the overage in `run-log.md` and dispatches
-   phase 2. That worker has only its commit left after step 1, so it finishes in one leg
-   (`smoke: phase 2`).
-9. **The run ends cleanly.** Both headings in the plan copy end in `[done]` with outcome
-   records, generation 2 disarms and prints the end-of-run summary, and
-   `git -C ~/jelly-smoke log --oneline` shows `init`, `smoke: phase 1` and `smoke: phase 2`.
+   `takeover_pending: null`, and the `run_id` is unchanged. It does not ask you to confirm
+   the run-config again.
+7. **Phase 1 continues as a new Task, unchecked.** Generation 2 dispatches leg 2 without a
+   budget check, because generation 1 already checked that boundary. Leg 2 is a second
+   Task ("Session 1 of 3 (leg 2)") that depends on leg 1's completed Task. Phase 1's `legs`
+   in `run-state.json` has two entries. Leg 2 reads the continuation note, adds step 2, and
+   makes the phase's only commit, `smoke: phase 1`.
+8. **Generation 2 hands off to generation 3.** Its first check, after phase 1, exits 10
+   with phases 2 and 3 left. Steps 3-6 repeat one generation up: a
+   "run-plan coordinator gen 3" terminal, a second `handoffs[]` entry, generation 2
+   fenced, and `takeover: {generation: 3, …}`.
+9. **Generation 3 finishes instead of handing off again.** It dispatches phase 2
+   unchecked (`smoke: phase 2`). Its next check is over 1% too, but only the last phase is
+   left, so it logs the overage in `run-log.md` and dispatches phase 3 (`smoke: phase 3`).
+   Both of those workers have only their commit left after step 1, so each finishes in one
+   leg.
+10. **The run ends cleanly.** All three headings in the plan copy end in `[done]` with
+    outcome records, `handoffs[]` has two entries, generation 3 disarms and prints the
+    end-of-run summary, and `git -C ~/jelly-smoke log --oneline` shows `init` and
+    `smoke: phase 1` to `smoke: phase 3`.
 
 Useful checks while it runs:
 
@@ -112,6 +127,9 @@ markers dir is under that instead.
 
 ### If something else happens
 
+- **Generations keep handing off without dispatching.** A successor checked the boundary
+  it resumed at instead of dispatching first (`coordinator-handoff.md`, "Taking over" step
+  7). Stop the run; that's a skill bug.
 - **The run blocks phase 1 with "this phase repeatedly exceeds one session".** A leg
   stopped without landing a step. Read the continuation note and the leg's
   `worker_done`; each leg should land one numbered step before its first check.
@@ -122,10 +140,10 @@ markers dir is under that instead.
 - **The successor sits at a trust or permission dialog.** Answer it. The predecessor
   doesn't re-send in that case.
 
-The plain `run-use` fencing that step 5 relies on comes from Orca 1.4.219's bundle and is
-not in the orchestration guide. If the predecessor confirms only through the `takeover`
-record, that is still a pass. Note it, though: it means fencing behaves differently than
-documented in `skills/run-plan/references/dispatch-orca.md` §9.
+The plain `run-use` fencing that step 5 relies on is not in Orca's orchestration guide.
+It was first verified against a real Run on Orca 1.4.229 (2026-10-18). If a predecessor
+confirms only through the `takeover` record, that is still a pass. Note it, though: it
+means fencing changed from what `skills/run-plan/references/dispatch-orca.md` §9 documents.
 
 ## 5. Clean up
 
@@ -137,7 +155,7 @@ documented in `skills/run-plan/references/dispatch-orca.md` §9.
    orca-ide orchestration worker-release --dispatch <dispatch_id> --json
    ```
 
-   Close the "run-plan coordinator gen 2" terminal and your own coordinator terminal when
+   Close the "run-plan coordinator gen 2" and "gen 3" terminals and your own coordinator terminal when
    you are done reading them.
 2. **Remove leftover markers.** Both coordinators and every worker disarm on exit, so the
    markers dir should hold nothing from this run. Delete any marker whose `label` names the
