@@ -25,8 +25,10 @@ cwd: /abs/path/to/repo
   `cursor`, `opencode`, … — `worker-start --help` lists the current set); `cwd` is where
   phase sessions run; `branch` is the program's shared branch.
 - Optional keys: `model` (a provider model id, passed to the backend only when present —
-  omit it for agents that take their model from their own config, e.g. `opencode`),
-  `max_consecutive_failures` (default 3), `continuation_cap` (default 3), and two context
+  omit it for agents that take their model from their own config; `worker-start --help`
+  lists which agents accept one), `effort` (a reasoning-effort level such as `high`, passed
+  only together with `model` and only for agents that support it; leave it out to keep the
+  agent's default), `max_consecutive_failures` (default 3), `continuation_cap` (default 3), and two context
   gates, each a percentage of the agent's context window:
   - `worker_handoff_pct`: the gate each phase worker arms with (§7).
   - `coordinator_handoff_pct`: the gate the runner arms itself with.

@@ -7,6 +7,37 @@ and each skill is versioned independently in its `SKILL.md` metadata.
 
 ## [Unreleased]
 
+### run-plan 1.3.0
+
+Checked against Orca 1.4.229, whose `orca-cli` and `orchestration` skills are now
+stubs that load a version-matched guide from the binary.
+
+#### Added
+
+- Optional run-config key `effort`, passed to `worker-start --effort` together
+  with `model`.
+- A lost `worker-start` or `task-create` response is recovered with
+  `orchestration request-show` and `--retry-request` instead of being re-run.
+- The coordinator reads `worker-show`'s `observation.agentWait` to spot a worker
+  parked on a permission or trust prompt, at first contact and during long waits.
+
+#### Changed
+
+- §0 loads the compact orchestration guide and fetches the recovery reference
+  with `--reference` only when needed, instead of `--full` up front.
+- Orca's three-strike breaker counts only failed starts, not a worker's own
+  `--outcome failed`. `max_consecutive_failures` is documented as the bound on
+  worker-reported failures, and a circuit-broken retry blocks the phase.
+- The first-contact heartbeat copies the preamble's command verbatim; newer
+  preambles carry no dispatch capability.
+- `--model` notes cover omp and opencode (existing worktree) per 1.4.229.
+- Task-list reconciliation uses `task-list --brief`, and the reclaimable sweep
+  follows `page.nextCursor`.
+
+### session-plan 1.1.1
+
+- The plan template documents the optional `effort` run-config key.
+
 ### context-budget 1.1.0
 
 #### Changed

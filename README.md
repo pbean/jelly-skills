@@ -68,7 +68,8 @@ back otherwise:
 
 The plan's `run-config` block chooses which agent the run-plan **workers** are, using any
 Orca agent id (`claude`, `codex`, `cursor`, `opencode`, …). `model` is optional; leave it
-out for agents that read the model from their own config.
+out for agents that read the model from their own config. `effort` (e.g. `high`) is
+optional too and only applies together with `model`.
 
 Run state goes to `<plan dir>/runs/<plan-name>/`. If the plan file is inside a git repo,
 it goes to `~/.agents/plans/runs/<plan-name>/` instead.

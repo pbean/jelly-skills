@@ -17,7 +17,7 @@ compatibility: >-
   run-plan and context-budget skills; install all three.
 metadata:
   author: pbean
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # Session Plan

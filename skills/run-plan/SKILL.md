@@ -2,8 +2,8 @@
 name: run-plan
 description: >-
   Execute a phased plan file as an unattended coordinator: for each pending
-  phase, dispatch a FRESH agent session (agent and model from the plan's run
-  config) via the configured dispatch backend (Orca orchestration), deliver
+  phase, dispatch a FRESH agent session (agent, model and effort from the
+  plan's run config) via the configured dispatch backend (Orca orchestration), deliver
   the phase prompt, wait for completion, verify the plan file was updated, and
   advance — stopping only when the plan is done or a phase is blocked. Use
   when the user says "run the plan", "run this plan", "/run-plan
@@ -17,7 +17,7 @@ compatibility: >-
   (claude, codex, cursor, opencode, ...).
 metadata:
   author: pbean
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Run a plan
@@ -190,9 +190,10 @@ the run stops there — later phases stay pending.
   (next bullet). Never re-dispatch over an unsettled attempt.
 - **A failed attempt** (`worker_done` with a failed outcome, a failed start, or a
   proven-dead dispatch) → summarize the failure into a regenerated phase file and retry
-  on the **same leg task** (`--retry-of` the failed dispatch, placement and agent/model
-  restated; dispatch-orca.md §7). Count consecutive failures per phase; at
-  `max_consecutive_failures` (default 3, aligned with the backend's own circuit breaker)
+  on the **same leg task** (`--retry-of` the failed dispatch, placement and
+  agent/model/effort restated; dispatch-orca.md §7). Count consecutive failures per phase;
+  at `max_consecutive_failures` (default 3; the backend's own breaker counts only failed
+  starts, so this counter is what bounds failures a worker reports)
   → `[blocked]` with all attempts summarized. Stop. The counter resets on any success.
 - **`PHASE-STATUS: continuation-required`** → the phase stays `[running]`. Release the
   worker, run the boundary check (Context budget), and start leg g+1 as a **new task**

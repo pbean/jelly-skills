@@ -5,9 +5,9 @@ backend (herdr, plain tmux, …), write a sibling `dispatch-<name>.md` with the 
 headings — preamble text, completion paragraph, dispatch/wait/retry procedure — and nothing
 in SKILL.md or plan-format.md changes.
 
-It documents the loop **shape** and the pitfalls, for Orca 1.4.219 and later. The command
-lines below were checked against `orca-ide` 1.4.219's `--help` and bundled guide on
-2026-10-15; flags rot across releases, so the guide you load in §0 wins wherever the two
+It documents the loop **shape** and the pitfalls, for Orca 1.4.229 and later. The command
+lines below were checked against `orca-ide` 1.4.229's `--help` and bundled guide on
+2026-10-18; flags rot across releases, so the guide you load in §0 wins wherever the two
 disagree. Commands are written `<orca> orchestration <verb>`, with `<orca>` resolved per §0.
 
 ## 0. Resolve the binary, load the real guide
@@ -19,12 +19,20 @@ without checking the earlier steps — it is the GNOME screen reader.**
 Then, before touching any orchestration command, load the version-matched reference:
 
 ```
-<orca> skills get orchestration --full
+<orca> skills get orchestration
 ```
 
-and follow it for exact flag spellings. `--full` includes the bundled references; the
-"Recovery and cleanup" one is the **recovery reference** this file points at for failed,
-stopped and `outcome_unknown` attempts.
+and follow it for exact flag spellings. That is the compact guide; the bundled references
+stay out of your context until a gate needs one. The **recovery reference** this file
+points at for failed, stopped and `outcome_unknown` attempts is loaded on demand with:
+
+```
+<orca> skills get orchestration --reference references/recovery-and-cleanup.md
+```
+
+Load it then, not up front: you are the session whose context has to last the whole run.
+If the CLI rejects `--reference`, run `<orca> skills get orchestration --full` once and
+read only that reference from it.
 
 ## 1. Run binding
 
@@ -80,15 +88,19 @@ Specs and deps are **immutable** — `task-update` changes only status/result �
 created with a label in `--spec` cannot be repaired: create a replacement and retire the
 orphan with `<orca> orchestration task-update --id <old id> --status failed --result '{"superseded_by": "<new id>"}' --json`.
 
+For the same reason, never re-run a `task-create` whose response was lost (a transport
+error with no receipt): the duplicate is permanent. Recover it per §3's lost-receipt rule.
+
 The task list is external memory: a coordinator that lost context can rediscover where the
-run stands from `<orca> orchestration task-list --json` plus the plan's tags and the legs in
+run stands from `<orca> orchestration task-list --brief --json` (specs capped at 160 characters; drop
+`--brief` when you need a full spec) plus the plan's tags and the legs in
 `run-state.json`. Record each leg's task id there as soon as `task-create` returns it.
 
 ## 3. Starting a worker
 
 ```
 <orca> orchestration worker-start --task <task_id> --worktree current \
-  --agent <run-config.agent> [--model <run-config.model>] --json
+  --agent <run-config.agent> [--model <run-config.model> [--effort <run-config.effort>]] --json
 ```
 
 - `--worktree current` = a fresh agent terminal in the existing checkout, no setup rerun —
@@ -96,11 +108,15 @@ run stands from `<orca> orchestration task-list --json` plus the plan's tags and
 - `--agent` takes any Orca agent id enabled on the worker server; `worker-start --help`
   lists them. Don't hardcode the list — it changes across Orca releases.
 - The model is set **only** via `--model` (provider-opaque id, e.g. `opus`), and only when
-  run-config has a `model` key. In 1.4.219, `--model` works only for claude, codex,
-  cursor, antigravity and muse; other agents (e.g. `opencode`) take their model from their
-  own config and reject it. Never pass `--effort` unless the user asks. If `worker-start`
-  rejects the id, re-resolve current ids via the loaded orchestration guide and tell the
-  user — do not silently substitute.
+  run-config has a `model` key. In 1.4.229, `--model` works for claude, codex, cursor,
+  antigravity, muse and omp, and for opencode in an existing worktree (which
+  `--worktree current` is) once the host has verified its CLI and the model; other
+  agents take their model from their own config. `worker-start --help` has the current
+  list. If `worker-start` rejects the id, re-resolve current ids via the loaded
+  orchestration guide and tell the user — do not silently substitute.
+- Reasoning effort is set **only** via `--effort`, and only when run-config has an
+  `effort` key. It requires `--model`, so an `effort` without a `model` is ignored (log
+  it). Claude, Codex, Cursor, Antigravity and Muse take it; omp and opencode don't.
 - **Never hand-build the agent argv** (no `--terminal` + your own agent command
   line): a custom argv replaces Orca's launch defaults, the worker comes up sandboxed off
   the Orca socket, and a sandboxed worker can never send heartbeat or `worker_done` — under
@@ -111,8 +127,8 @@ only for `ready`.
 
 - **Exit 0 (`ready`).** Record `dispatchId` in the leg's `run-state.json` entry and read
   `turnStart`, which drives first contact (§5). Compare `launch.requested` with
-  `launch.effective`. If the effective agent or model is not what run-config asked for,
-  log it and tell the user. Don't re-dispatch over it.
+  `launch.effective`. If the effective agent, model or effort is not what run-config asked
+  for, log it and tell the user. Don't re-dispatch over it.
 - **Exit 1, `state: failed`.** Read `stage`, `failedStage` and `residualResources`, and run
   only the recovery commands the receipt prints (`nextCommands`). A start that failed
   before its agent was ready still owns the terminal it created. Release that terminal with
@@ -125,6 +141,15 @@ only for `ready`.
   Then choose explicitly: `<orca> orchestration worker-stop --dispatch <id> --json` when the
   agent terminal is proven, or `<orca> orchestration worker-abandon --dispatch <id> --json`
   when it isn't. Treat it as a failed attempt and retry per §7.
+- **No receipt at all** (the response was lost to a transport error, so you hold no
+  dispatch id). Never re-run the command blind: a second `worker-start` puts two editors in
+  one checkout. If the error reports a request id, ask Orca what happened:
+  `<orca> orchestration request-show --request <request_id> --json`. `completed` → read its
+  recorded receipt and carry on from it. `pending` → replay the **exact** original command
+  with `--retry-request <request_id>` appended, which joins the original instead of starting
+  another. `absent` (or no request id) → proves nothing; inspect with
+  `<orca> orchestration worker-list --run <run_id> --json` and `task-list` before deciding.
+  The same rule covers every orchestration mutation, `task-create` included.
 
 ## 4. Delivering the prompt
 
@@ -153,15 +178,18 @@ proof you have:
   this agent gives no turn signal. The worker's heartbeat (§8a) is the proof. So:
   1. Wait for it:
      `<orca> orchestration check --wait --types heartbeat,worker_done,escalation,question --timeout-ms 180000 --json`.
-  2. On silence, look **exactly once**:
+  2. On silence, look **exactly once**, with these two reads:
+     `<orca> orchestration worker-show --dispatch <id> --json`, then
      `<orca> orchestration worker-read --dispatch <id> --source auto --limit 20 --json`.
      - Work visibly in progress → the heartbeat was skipped, not the prompt lost; go to
        §6. Re-delivering now would double-inject.
-     - A permission or trust dialog → only a person can clear it. Tell the user, and keep
-       waiting after they do. Never re-deliver over a dialog.
+     - A permission or trust dialog → only a person can clear it. `worker-show`'s
+       `observation.agentWait`, when non-null, names it and the evidence (hook, prompt
+       text or title); otherwise it shows in the read. Tell the user, and keep waiting
+       after they do. Never re-deliver over a dialog.
      - Empty composer or startup placeholder → the prompt was swallowed. Re-deliver once:
        `<orca> orchestration worker-stop --dispatch <id> --json`, then
-       `<orca> orchestration worker-start --task <t> --retry-of <id> --worktree current --agent <a> [--model <m>] --json`.
+       `<orca> orchestration worker-start --task <t> --retry-of <id> --worktree current --agent <a> [--model <m> [--effort <e>]] --json`.
        `--retry-of` accepts only a proven failed or stopped attempt, which is why the
        stop comes first. Orca may count the stopped attempt toward its three-failure
        breaker. **Never `terminal send` the one-liner instead**: that delivers text
@@ -191,6 +219,13 @@ Rolling waits, re-issued in a loop until a terminal event:
   and `requiresAction`) and the literal `projection.nextAction` argv. A `none` nextAction
   has no argv: read `liveness.reason` and keep waiting. Reset the empty-wait count after
   enumerating.
+- **A worker parked on a human-only prompt** (a permission or trust dialog mid-phase) is
+  healthy, not failed, but it waits forever. When `attention` asks for action, or once per
+  enumeration while the worker is still quiet, run
+  `<orca> orchestration worker-show --dispatch <id> --json`. A non-null
+  `observation.agentWait` names the prompt and its evidence. Tell the user what it is
+  waiting on and keep waiting. Null means Orca looked and found no wait; an **absent**
+  field means it never looked, which proves nothing either way.
 - **Absence authorizes nothing.** `unverifiable` liveness, a null `agentWait` or an
   unchanged output tail is absence, not proof. Leave the wait only on positive proof the
   agent stopped: `exited` liveness, or a transcript whose final agent turn sent no
@@ -219,12 +254,16 @@ Rolling waits, re-issued in a loop until a terminal event:
   open.
 - **A `failed` outcome retries on the same leg Task.** Summarize the failure into a
   regenerated `phase-N.txt`; the Task's spec already points at that path, so overwrite it in
-  place. Then start a fresh dispatch with placement and agent/model restated, because a
-  retry never inherits placement:
-  `<orca> orchestration worker-start --task <t> --retry-of <dispatch_id> --worktree current --agent <a> [--model <m>] --json`.
-  Orca circuit-breaks a task after 3 consecutive failures; run-plan's
-  `max_consecutive_failures` (default 3) aligns with it. Never route around the breaker with
-  a new Task or Run.
+  place. Then start a fresh dispatch with placement and agent/model/effort restated,
+  because a retry never inherits placement:
+  `<orca> orchestration worker-start --task <t> --retry-of <dispatch_id> --worktree current --agent <a> [--model <m> [--effort <e>]] --json`.
+- **Two failure counters, and they count different things.** Orca circuit-breaks a task
+  after 3 consecutive failed **starts** (failed `worker-start` attempts, counted across
+  `--retry-of`). A worker's own `--outcome failed` report does **not** count toward it. So
+  run-plan's `max_consecutive_failures` (default 3) is the only bound on failures workers
+  report, and it counts every failed attempt. If Orca refuses a `--retry-of` with
+  `task_not_startable` because the task is circuit-broken, mark the phase `[blocked]` and
+  stop. Never route around the breaker with a new Task or Run.
 - **A continuation is a new leg, never a retry**: release, then create the next leg's Task
   (§2) depending on this one, and start it (§3).
 - Answer a worker's `ask` with `<orca> orchestration reply --id <msg_id> --body "<answer>" --json`.
@@ -232,7 +271,8 @@ Rolling waits, re-issued in a loop until a terminal event:
   typing into its terminal. Workers pick them up at their checkpoints (§8b).
 - **Before ending the run** (any exit state), enumerate leftovers with
   `<orca> orchestration worker-list --run <run_id> --terminal-state reclaimable --json` and
-  release each one listed. The run isn't over until that list is empty.
+  release each one listed. Rows page at 100: while `page.hasMore`, continue with
+  `--cursor <page.nextCursor>`. The run isn't over until that list is empty.
 
 ## 8. Canonical worker-facing text
 
@@ -241,9 +281,10 @@ Rolling waits, re-issued in a loop until a terminal event:
 > **Before anything else — before you read a single file** — tell the coordinator you have
 > this prompt. Send a `heartbeat` exactly as the lifecycle preamble Orca injected into
 > your terminal with your dispatch shows it, with `--phase starting` and the subject
-> `session <n> started`. The
-> preamble supplies your terminal handle, dispatch capability, task id and dispatch id;
-> take all four from there. This one command is what tells the coordinator the dispatch
+> `session <n> started`. Copy
+> the preamble's own command: it supplies your terminal handle, task id and dispatch id,
+> and any other flag it carries (older Orca hosts add a dispatch capability). Never
+> rebuild those arguments yourself. This one command is what tells the coordinator the dispatch
 > landed rather than being swallowed at startup, and until it arrives the coordinator
 > cannot tell you apart from a worker that never woke up.
 
@@ -270,8 +311,8 @@ Rolling waits, re-issued in a loop until a terminal event:
 > `--outcome succeeded` — the session did its job by stopping cleanly — but make the subject
 > `session <n> paused at context budget` and the **first line of the body**
 > `PHASE-STATUS: continuation-required`, then name the continuation note by path and stop.
-> Do not use `--outcome failed`: nothing failed, and a failure counts against the task's
-> three-strike circuit breaker.
+> Do not use `--outcome failed`: nothing failed, and the coordinator would retry the phase
+> from scratch and count it toward blocking the phase.
 >
 > Never signal completion by writing a sentinel file or by going idle — `worker_done` is
 > the only completion signal the coordinator trusts.
@@ -279,8 +320,8 @@ Rolling waits, re-issued in a loop until a terminal event:
 ## 9. Coordinator succession
 
 The backend half of `coordinator-handoff.md`: that file says when and why, this section
-says which commands. Checked against `orca-ide` 1.4.219's `--help` and the installed app
-bundle on 2026-10-15. Every `terminal` verb below takes an explicit `--terminal <handle>`:
+says which commands. Checked against `orca-ide` 1.4.229's `--help` on 2026-10-18 (first
+written against 1.4.219 and its app bundle). Every `terminal` verb below takes an explicit `--terminal <handle>`:
 without one, Orca targets the **active terminal of the cwd's worktree**, which may be some
 other agent's pane, not yours.
 
@@ -319,6 +360,9 @@ the Orca worktree enclosing the shell's cwd:
 - `<shell_command>` is `ctxcheck launch-command --json`'s `shell_command`, verbatim. Orca
   types it into a login shell, so the agent's launcher defaults don't apply. That is why
   the command is your own detected argv and never a bare agent name or a hand-built one.
+- `terminal create --help` points agent starts at `<orca> agent launch`. Not here:
+  `agent launch` applies Orca's launcher defaults rather than your own argv, and it may
+  open the successor as a chat, per the user's Chat UI setting, instead of a terminal.
 - Record `result.terminal.handle` as `<successor>` in `run-log.md` and in the
   `handoffs[]` entry (`successor_terminal`).
 

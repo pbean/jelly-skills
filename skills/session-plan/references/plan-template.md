@@ -24,8 +24,9 @@ cwd: /abs/path/to/repo
 `agent` is an Orca agent id (`claude`, `codex`, `cursor`, `opencode`, …) —
 default to the agent doing the planning. `model` is optional: set it to a
 provider model id for agents Orca can pick a model for (e.g. `opus` for
-`claude`), and omit it for agents that take the model from their own config
-(e.g. `opencode`). Parse rules and optional keys live in the run-plan skill's
+`claude`), and omit it for agents that take the model from their own config.
+`effort` (e.g. `high`) is optional too, needs `model`, and belongs in the block
+only when the user asks for one. Parse rules and optional keys live in the run-plan skill's
 `plan-format.md` — `../../run-plan/references/plan-format.md` relative to this
 file. That file is the canonical contract between this template and the
 runner; keep the two in step.
