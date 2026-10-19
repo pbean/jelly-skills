@@ -172,6 +172,8 @@ For each phase N, from the first non-`[done]` phase to M, strictly sequentially:
    this phase's literal heading line, the plan path, the runs dir, the leg number,
    `ctxcheck_path` and the `worker_handoff_pct` gate;
    (e) the backend completion paragraph (dispatch §8b).
+   The backend paragraphs may carry placeholders of their own (a per-attempt result or
+   ask file path, say); dispatch §8 defines them, and you substitute them here too.
    **The wrapper exists only in this file, never in the plan's fences** — the plan's
    prompts must stay clean enough to hand-paste.
 4. **Create the leg record** per dispatch §2, following the previous leg (or the previous
@@ -287,6 +289,7 @@ backend's commands:
 | `backend` | File | Requires |
 | --- | --- | --- |
 | `orca` | `references/dispatch-orca.md` | Orca orchestration: the Orca CLI (`orca-ide` on Linux) |
+| `herdr` | `references/dispatch-herdr.md` | herdr ≥ 0.9.5, with the coordinator running inside a herdr pane (`HERDR_ENV=1`) |
 
 **The section contract.** Every dispatch file has the headings `## 0.` through `## 9.`,
 with the same titles as `dispatch-orca.md` (retitled only where a backend lacks the
