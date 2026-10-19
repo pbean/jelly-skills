@@ -268,7 +268,7 @@ done):
   way to send a mid-phase follow-up while the worker is `working`: typing into a busy
   agent races its own output. Queue a follow-up for the next settled state, or leave it
   out.
-- **Before ending the run** (any exit state), sweep: for every `tab_id` in
+- **Before ending the run** (any exit state), sweep: for every leg's `tab_id` in
   `run-state.json`, if `herdr tab get <tab_id>` still finds it, close it. The run isn't
   over until none is left.
 
@@ -308,4 +308,139 @@ worker to number) into both paragraphs.
 
 ## 9. Coordinator succession
 
-Written in the next phase.
+The backend half of `coordinator-handoff.md`: that file says when and why, this section
+says which commands. Checked against herdr 0.9.5's group listings, `socket-api.mdx` and
+`agent-automation.mdx` on 2026-10-19, and against `ctxcheck launch-command`'s runtime
+list. **Not live-validated**, like §§3-6. herdr has no run to rebind and no fencing, so
+the takeover is confirmed by `run-state.json` alone (§1's `owner` is the convention that
+stands in for a fence).
+
+**Am I inside a herdr pane?** (handoff step 1.) Yes when `HERDR_ENV` is `1`, `$HERDR_PANE_ID`
+is non-empty, **and** this answers `type: "pane_info"` with `.result.pane.pane_id` equal to
+`$HERDR_PANE_ID`:
+
+```
+herdr pane current --current
+```
+
+Also check that `run-state.json`'s `owner.pane_id` is that pane (§1). An error, a missing
+variable or a mismatched id means no: take the handoff fallback. Never probe with a bare
+`herdr pane current` (it answers for the focused pane, which can be another agent's).
+
+**Settle the inbox** (handoff step 2). herdr has no inbox and no deliveries to
+acknowledge, so there is nothing to settle and handoff step 4 has nothing to hold back.
+Go straight to the note.
+
+**Launch the successor** (handoff step 6). Open a new tab in `run-config.cwd`, not focused:
+
+```
+herdr tab create --cwd <run-config.cwd> --label "run-plan coordinator gen <G+1>" --no-focus
+```
+
+Record `.result.tab.tab_id` and `.result.root_pane.pane_id` at once, in `run-log.md` and
+in the `handoffs[]` entry as `successor_tab` and `successor_pane`. Never record them as a
+leg's `tab_id`: §7's end-of-run sweep closes leg tabs, and a later generation would close
+the tab its own coordinator runs in. The successor's agent name is `<run_id>-coord-g<G+1>`
+(for example `rp3f9a-coord-g2`), which matches herdr's name rule.
+
+Then start the agent from `ctxcheck launch-command --json`. Its `runtime` picks the path:
+
+| `runtime` | herdr `--kind` |
+| --- | --- |
+| `claude`, `codex`, `opencode`, `pi`, `cursor`, `copilot` | the same name |
+| `antigravity` | `agy` |
+| anything else | none: use `pane run` below |
+
+Each kind is in `herdr agent`'s kinds list (0.9.5). When the runtime has a kind **and**
+`argv[0]` is the agent's own executable (not `node`, `nodejs`, `bun` or `deno`, whose
+`argv` carries an interpreter and a script path first), start it readiness-aware, with
+`argv[1:]` as the arguments:
+
+```
+herdr agent start <successor> --kind <kind> --pane <successor_pane> --timeout 120000 -- <argv[1:]>
+```
+
+- Pass `argv[1:]` as separate arguments, unchanged. They are your own launch posture
+  (permissions, sandbox, model) minus resume arguments and the initial prompt, and herdr
+  adds no launch defaults of its own. Never build them from the agent name.
+- **Success** (`type: "agent_started"`) means the agent is ready for input. Compare
+  `.result.argv` with `launch-command`'s `argv`; if the executable or the arguments differ
+  (herdr runs the kind's canonical executable from PATH), log it and tell the user, then go
+  on.
+- **`agent_not_ready`**: a trust or permission dialog came up at startup. That is handoff
+  step 8's dialog branch, with nothing sent yet.
+- **A timeout or any other error**: the one diagnostic read below, then handoff step 8.
+  On a lost receipt, settle it with `herdr agent get <successor>` before anything else,
+  never a second `agent start`.
+
+Otherwise (no kind, or an interpreter `argv`), type your own command into the pane and
+detect the agent:
+
+```
+herdr pane run <successor_pane> "<shell_command>"
+```
+
+`<shell_command>` is `launch-command`'s `shell_command`, verbatim, as one argument. Then
+poll for detection, bounded at 180 s in one shell call, and name it:
+
+```
+timeout 180 sh -c 'until herdr agent get "$0" >/dev/null 2>&1; do sleep 3; done' <successor_pane>
+herdr agent rename <successor_pane> <successor>
+```
+
+Exit 124 from `timeout` means herdr never detected an agent there: the one diagnostic
+read, then handoff step 8. Once named, wait for its interface, since a line typed into a
+booting agent can be lost:
+`herdr agent wait <successor> --until idle --until blocked --timeout 120000`. `blocked` is
+handoff step 8's dialog branch; a `timeout` error is the diagnostic read.
+
+**Send one line** (handoff step 6 has the text; it has no newline in it):
+
+```
+herdr agent prompt <successor> "<one line>" --wait --until working --until blocked --timeout 60000
+```
+
+- **Returns `agent_status: "working"`**: the line was submitted and the turn started. Go
+  to the takeover wait.
+- **Returns `agent_status: "blocked"`, or `agent_blocked`**: a dialog. That is handoff step
+  8's dialog branch: tell the user, and don't re-send.
+- **`agent_prompt_stalled` or `timeout`**: neither proves the line was lost. Do the one
+  diagnostic read now instead of waiting ten minutes first, and decide from it per handoff
+  step 8.
+
+**Confirm the takeover** (handoff step 7). The successor's §1 rebind is a `run-state.json`
+write: in the same atomic write as its `takeover: {generation: G+1, at}` record, it
+rewrites `owner` to `{"pane_id": "<its $HERDR_PANE_ID>", "generation": <G+1>}`. A successor
+whose first line names generation `takeover_pending` rewrites `owner` without §1's resume
+confirmation: the predecessor's handoff is that confirmation. There is no fenced signal to
+wait for, so poll the file, bounded at 600 s, in one shell call:
+
+```
+timeout 600 sh -c 'until python3 -c "import json,sys; sys.exit((json.load(open(sys.argv[1])).get(\"takeover\") or {}).get(\"generation\") != int(sys.argv[2]))" "$0" "$1" 2>/dev/null; do sleep 5; done' "<runs dir>/run-state.json" "<G+1>"
+```
+
+- **Exit 0**: `takeover.generation == G+1`, so the takeover is confirmed. Re-read
+  `run-state.json`: `owner.pane_id` should now name the successor's pane. From here §1's
+  fencing by convention applies to you: `owner` names another pane, so you dispatch and
+  release nothing.
+- **Exit 124** (the 600 s ran out): re-read `run-state.json` once; still no takeover →
+  handoff step 8.
+- If your shell tool caps one call below ten minutes, run the same loop as several shorter
+  calls that add up to 600 s.
+
+**The one diagnostic read** (handoff step 8). Exactly once, for diagnosis only, and only
+of the successor, never a worker (§6):
+
+```
+herdr agent read <successor> --source visible
+```
+
+If it answers `agent_not_found` (herdr never detected an agent there), read the pane
+instead, which is still the one read: `herdr pane read <successor_pane> --source visible --lines 40`.
+Decide from it per handoff step 8: a dialog → tell the user; an empty composer → the one
+re-send (the same `agent prompt` above), then the takeover wait once more.
+
+**If the succession failed**, leave the successor's tab open and name it to the user (its
+label, `successor_tab` and `successor_pane`) rather than closing it yourself. With
+`takeover_pending` cleared, a successor that wakes later stands down without touching
+`owner`. Never close your own tab either: the user closes it once you end your turn.

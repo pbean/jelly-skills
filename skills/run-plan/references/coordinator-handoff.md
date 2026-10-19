@@ -58,10 +58,11 @@ If the probe fails, or `launch-command` exits non-zero, you can't launch: still 
 
 ### 2. Write the handoff note
 
-First settle your inbox per the backend's §9: acknowledge the deliveries you have already
-processed (the last `worker_done` among them), so nothing you handled is replayed to the
-successor and the takeover wait in step 7 can block. This is the last acknowledgement you
-make.
+When the backend has an inbox, first settle it per the backend's §9: acknowledge the
+deliveries you have already processed (the last completion report among them), so nothing
+you handled is replayed to the successor and the takeover wait in step 7 can block. This
+is the last acknowledgement you make. A backend with no inbox has nothing to settle; its
+§9 says so.
 
 Then write `<runs dir>/coordinator-handoff.md`, overwriting any note an earlier generation left
 (those are summarized in `run-log.md` and `handoffs[]`). Write it for an agent that has
@@ -99,9 +100,10 @@ launched**, so the successor never reads a state that doesn't expect it.
 
 ### 4. Stop acknowledging
 
-From here on, **never acknowledge a backend delivery**, and don't act on one. Anything
-that arrives now stays unacknowledged, so the successor receives it on replay. A message
-you ack now is a message nobody acts on.
+When the backend has an inbox: from here on, **never acknowledge a backend delivery**,
+and don't act on one. Anything that arrives now stays unacknowledged, so the successor
+receives it on replay. A message you ack now is a message nobody acts on. A backend with
+no inbox has nothing to hold back; go on to step 5.
 
 ### 5. Disarm
 
@@ -129,14 +131,17 @@ confirmation on every action.
 
 ### 7. Confirm the takeover
 
-The successor's first backend act rebinds the run to its own terminal, which fences you.
-Right after that it records `takeover: {generation: G+1, at}` in `run-state.json`.
-Wait for that per the backend's §9 (one bounded wait of about ten minutes). **Either** of
-these confirms the takeover:
+The successor's first backend act rebinds the run to its own terminal, which fences you
+when the backend has fencing. Right after that it records
+`takeover: {generation: G+1, at}` in `run-state.json`. Wait for that per the backend's §9
+(one bounded wait of about ten minutes). **Either** of these confirms the takeover:
 
 - the backend reports that you were fenced (the run now belongs to another terminal);
 - `run-state.json` shows `takeover.generation == G+1`. In that case any later backend call
   you make fails as fenced or unbound; that is expected.
+
+A backend with no fencing has nothing to report, so it confirms by `run-state.json`
+alone: its §9 polls the file, and from then on you treat the run as the successor's.
 
 Re-read `run-state.json` after the wait returns, whatever it returned.
 
@@ -199,9 +204,9 @@ Then, in order:
    run-config. Reuse `ctxcheck_path` from `run-state.json`.
 5. **Reconcile** the backend's task list, the plan's tags and the `legs` in
    `run-state.json` against the note. **Recorded state wins** where they disagree: the
-   note is a predecessor's account, the records are what happened. Then process the
-   unacknowledged batch your predecessor left you, validating each message against the
-   active dispatch ids as usual.
+   note is a predecessor's account, the records are what happened. When the backend
+   has an inbox, then process the unacknowledged batch your predecessor left you,
+   validating each message against the active dispatch ids as usual.
 6. **Arm yourself.** The marker is per session, so it didn't come with you. On Claude
    Code invoke the context-budget skill first, then arm as SKILL.md "Context budget"
    says, with the inherited gate (`coordinator_handoff_pct`, when set).
