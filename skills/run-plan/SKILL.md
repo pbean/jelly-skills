@@ -68,7 +68,8 @@ in Step 0; below, `ctxcheck` means `python3 <ctxcheck_path>`).
    prompt extraction, outcome records, write ownership, normalization, and the canonical
    wrapper suffix.
 2. `references/dispatch-<backend>.md` — the dispatch file for this run's backend ("Dispatch
-   backends" below). Load it once Step 1 has resolved `backend`; a successor reads
+   backends" below). Load it as soon as Step 1 has resolved `backend`, before
+   normalization; a successor reads
    `backend` from `run-state.json`. Follow its §0 before any backend command: it resolves
    the backend's binary and its version-matched guide or usage. Never guess flags from
    memory. Below, "dispatch §N" means section N of that file.
@@ -124,6 +125,10 @@ wins: never detect or ask again mid-run. A `run-state.json` with no `backend` ke
 backends (run-plan 1.3 and older): take the legacy value §1 names. Otherwise use the plan's
 `backend` key, or, when it is absent, detect it per §1.
 
+Then load `references/dispatch-<backend>.md` and run its §0 checks **before normalizing**:
+§0 may refuse the run (wrong environment, server missing or too old), and a refused run
+must leave the plan and `run-state.json` untouched.
+
 Then run the normalization procedure in plan-format.md §6: detect the layout, translate
 legacy status markers, confirm the phase mapping with the user when the layout is legacy or
 any status is ambiguous, synthesize and confirm (once) any missing run-config keys per §1,
@@ -137,8 +142,8 @@ never invent phases from prose.
 
 Parse the run-config block per plan-format.md §1; Step 1 has already synthesized,
 confirmed, and written any missing keys, `backend` among them. Record the resolved
-`backend` in `run-state.json` (a legacy state file without the key gets it now). Then load
-`references/dispatch-<backend>.md` (Contracts to load first). Create the runs directory
+`backend` in `run-state.json` (a legacy state file without the key gets it now); its
+dispatch file is already loaded (Step 1). Create the runs directory
 `<runs dir>` containing:
 
 - `run-state.json` — `backend`, the backend run id (dispatch §1), `ctxcheck_path`

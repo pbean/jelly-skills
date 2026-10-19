@@ -171,13 +171,20 @@ herdr agent start <name> --kind <run-config.agent> --pane <pane_id> --timeout 12
 - **A timeout or any other error** (`agent_pane_busy`, `unsupported_agent_kind`,
   `invalid_agent_argument`, …): read once (`herdr agent read <name> --source visible`;
   it errors if no agent came up), close the tab (`herdr tab close <tab_id>`), and count a
-  failed attempt (§7). An error a fix to run-config would cure (a bad kind or argument) is
-  for the user: mark the phase `[blocked]` with the error rather than spend attempts.
+  failed attempt (§7) only once the start is **confirmed dead** (below). An error a fix to
+  run-config would cure (a bad kind or argument) is for the user: mark the phase
+  `[blocked]` with the error rather than spend attempts.
 - **Lost receipt** (a transport error with no JSON). Never re-run `agent start` blind: a
   second agent in another tab puts two editors in one checkout. Check `herdr agent get
   <name>` first. If it answers the agent, carry on from that as the receipt; if it answers
   `agent_not_found`, check `herdr tab list` for the recorded tab, close it, and count a
-  failed attempt.
+  failed attempt once confirmed dead.
+
+**Confirmed dead**, before any failed start is retried: `herdr agent get <name>` answers
+`agent_not_found`, and `herdr tab get <tab_id>` errors. A start that timed out may still
+have launched the agent, and a `tab close` that errors (including `confirmation_required`)
+may have closed nothing. Anything else → don't start attempt `k+1`; tell the user what is
+still running and stop, as release does (§7).
 
 A start whose outcome is unknown is the lost-receipt case: settle it by `agent get`
 before anything else.
@@ -283,8 +290,9 @@ done):
 - **Release** = refresh (§2), then `herdr tab close <tab_id>`, on **every** settled
   attempt (complete, continuation, failed, blocked) before moving on, and only for tabs
   recorded in `run-state.json`. Closing the tab ends the agent, and herdr clears its name.
-  If the refresh found the worker moved out of its own tab (`tab_id` ≠ `origin_tab_id`),
-  the tab it is in now may hold the user's panes: close only the worker's pane,
+  If the leg has an `origin_tab_id` (a refresh has ever found the worker outside its own
+  tab, even if it has since been moved back), the tab it is in now may hold the user's
+  panes: close only the worker's pane,
   `herdr pane close <pane_id>`. Close `origin_tab_id` only if `herdr tab get` still finds
   it with `pane_count` 0: the run put only the worker's root pane there, so any pane left
   in it is the user's, and a CLI close is immediate. Otherwise leave it and log it. Either
