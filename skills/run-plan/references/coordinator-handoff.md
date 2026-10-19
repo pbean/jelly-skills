@@ -132,7 +132,7 @@ confirmation on every action.
 ### 7. Confirm the takeover
 
 The successor's first backend act rebinds the run to its own terminal, which fences you
-when the backend has fencing. Right after that it records
+when the backend has fencing. In the same guarded write, under the same lock, it records
 `takeover: {generation: G+1, at}` in `run-state.json`. Wait for that per the backend's §9
 (one bounded wait of about ten minutes). **Either** of these confirms the takeover:
 
@@ -187,11 +187,12 @@ predecessor's give-up (step 8). A slow successor can pass its first look at
 `takeover_pending` before the predecessor gives up and still reach its write afterward.
 So each of the two re-reads and checks the state under one exclusive lock,
 `<runs dir>/run-state.lock`, and writes only if its check holds. Exactly one of them
-wins:
+wins. Arguments after the state path are a backend command to run under the lock once
+the check holds, before the write; only the successor passes one (Taking over step 2):
 
 ```bash
-python3 - "<runs dir>/run-state.json" <<'EOF'
-import json, os, sys, tempfile
+python3 - "<runs dir>/run-state.json" [<rebind command> ...] <<'EOF'
+import json, os, subprocess, sys, tempfile
 try:
     import fcntl
     def lock_ex(f): fcntl.flock(f, fcntl.LOCK_EX)
@@ -204,13 +205,15 @@ except ImportError:        # native Windows: no fcntl
                 return msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
             except OSError:
                 pass
-path = sys.argv[1]
+path, rebind = sys.argv[1], sys.argv[2:]
 with open(os.path.join(os.path.dirname(path), "run-state.lock"), "a") as lock:
     lock_ex(lock)
     with open(path) as f:
         state = json.load(f)
     if not CHECK:          # the check, below
         sys.exit(3)        # lost the race: nothing written
+    if rebind and subprocess.run(rebind).returncode != 0:
+        sys.exit(4)        # the rebind failed: nothing written
     ...                    # the changes, below
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
     with os.fdopen(fd, "w") as f:
@@ -224,7 +227,8 @@ EOF
 - **Predecessor**: the check is `(state.get("takeover") or {}).get("generation") != G+1`;
   the changes are step 8's.
 
-Exit 3 means the other side won. Every other `run-state.json` write has one writer and
+Exit 3 means the other side won. Exit 4 means the backend refused the rebind; its own
+output says why. Every other `run-state.json` write has one writer and
 stays a plain atomic write.
 
 ## Taking over (you are the successor)
@@ -243,14 +247,17 @@ Then, in order:
 1. **Read the handoff note**, `<runs dir>/coordinator-handoff.md`, before anything else.
 2. **Rebind the backend run** recorded in `run-state.json` to your terminal, per the
    backend's §9 and §1. Never create a new run: a second run splits the task history.
+   When the rebind is a backend command (one that fences the predecessor), don't run it
+   on its own: pass it to step 3's guarded write, which runs it under the lock. Run alone,
+   it could fence a predecessor that gave up a moment earlier, leaving nobody driving.
 3. **Acknowledge the takeover right away**, because the predecessor is waiting on it.
    In one guarded write ("Guarded writes" above), record `takeover: {generation: <you>,
    at}`, set `coordinator_generation` to your generation, and clear `takeover_pending`,
    together with any `owner` change the backend's §9 puts in the same write. Log it in
    `run-log.md`. **Exit 3** means the predecessor gave up and resumed while you were
-   starting: stand down without touching the run, tell the user, and end your turn. When
-   the backend's rebind (step 2) is a separate backend act, re-read `takeover_pending`
-   right before it as well, and stand down the same way if it no longer names you.
+   starting: stand down without touching the run, tell the user, and end your turn.
+   **Exit 4** means the rebind failed and nothing was recorded: tell the user what the
+   backend said and end your turn; the predecessor's wait runs out and it decides.
 4. **Skip what an earlier generation already settled.** Skip Step 1's confirmations and
    the resume rule that a `[running]` tag means "confirm with the user" (the tag is your
    predecessor's, and it is live). Never re-normalize the plan, and never re-ask the

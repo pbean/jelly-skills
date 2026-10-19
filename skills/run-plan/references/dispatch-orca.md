@@ -391,7 +391,10 @@ Then send **one line** (handoff step 6 has the text; it has no newline in it):
 
 **Confirm the takeover** (handoff step 7). The successor rebinds with
 `<orca> orchestration run-use --id <run_id> --json` from its own terminal, the deliberate
-use of the rebinding §1 warns about. That fences you. Wait for it **without `--ack`**:
+use of the rebinding §1 warns about. It runs that command inside its guarded
+acknowledgment (`coordinator-handoff.md`, "Guarded writes", passing the `run-use` argv
+after the state path), so the rebind happens only while `takeover_pending` still names it
+and never after your give-up. That fences you. Wait for it **without `--ack`**:
 
 ```
 <orca> orchestration check --wait --types worker_done,escalation,question --timeout-ms 600000 --json
