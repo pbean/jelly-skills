@@ -380,9 +380,11 @@ Then start the agent from `ctxcheck launch-command --json`. Its `runtime` picks 
 | anything else | none: use `pane run` below |
 
 Each kind is in `herdr agent`'s kinds list (0.9.5). When the runtime has a kind **and**
-`argv[0]` is the agent's own executable (not `node`, `nodejs`, `bun` or `deno`, whose
-`argv` carries an interpreter and a script path first), start it readiness-aware, with
-`argv[1:]` as the arguments:
+`argv[0]` is the agent's own executable, start it readiness-aware, with `argv[1:]` as the
+arguments. Judge `argv[0]` by its basename, with any directory and `.exe` stripped:
+`/usr/bin/node` is still an interpreter. An interpreter is `node`, `nodejs`, `bun` or
+`deno`, optionally followed by a version (`node22`), and its `argv` carries an
+interpreter and a script path first, so it never takes this path:
 
 ```
 herdr agent start <successor> --kind <kind> --pane <successor_pane> --timeout 120000 -- <argv[1:]>
@@ -441,8 +443,12 @@ herdr agent prompt <successor> "<one line>" --wait --until working --until block
 - **Returns `agent_status: "blocked"`, or `agent_blocked`**: a dialog. That is handoff step
   8's dialog branch: tell the user, and don't re-send.
 - **`agent_prompt_stalled` or `timeout`**: neither proves the line was lost. Do the one
-  diagnostic read now instead of waiting ten minutes first, and decide from it per handoff
-  step 8.
+  diagnostic read now instead of waiting ten minutes first, and decide from it:
+  - Work is visible → the line landed. Go to the takeover wait; if that runs out, the
+    succession failed (handoff step 8's last branch, with no second read).
+  - The line sits unsubmitted in the composer → `herdr agent send-keys <successor> enter`
+    once, then the takeover wait as above.
+  - Anything else → handoff step 8 (a dialog, an empty composer, or failure).
 
 **Confirm the takeover** (handoff step 7). The successor's §1 rebind is a `run-state.json`
 write: in the same guarded write (`coordinator-handoff.md`, "Guarded writes") as its
