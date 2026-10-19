@@ -285,8 +285,10 @@ done):
   recorded in `run-state.json`. Closing the tab ends the agent, and herdr clears its name.
   If the refresh found the worker moved out of its own tab (`tab_id` ≠ `origin_tab_id`),
   the tab it is in now may hold the user's panes: close only the worker's pane,
-  `herdr pane close <pane_id>`, then close `origin_tab_id` if `herdr tab get` still finds
-  it. Either way, confirm with `herdr agent get <name>`, which must answer
+  `herdr pane close <pane_id>`. Close `origin_tab_id` only if `herdr tab get` still finds
+  it with `pane_count` 0: the run put only the worker's root pane there, so any pane left
+  in it is the user's, and a CLI close is immediate. Otherwise leave it and log it. Either
+  way, confirm with `herdr agent get <name>`, which must answer
   `agent_not_found` before you advance; anything else → tell the user and stop. If
   `tab close` answers `confirmation_required`, tell the user rather than force it. Keep a
   tab open only if the user asks.
@@ -303,8 +305,9 @@ done):
   out.
 - **Before ending the run** (Completed or Blocked; SKILL.md Exit states), sweep: for every
   leg in `run-state.json`, release its attempt as above if `herdr agent get <dispatch_id>`
-  still answers it, then close its `tab_id` (and `origin_tab_id`) if `herdr tab get`
-  still finds it.
+  still answers it. Then close the tab the run created for it if `herdr tab get` still
+  finds it: `tab_id` when the leg has no `origin_tab_id`, else `origin_tab_id`, and that
+  only at `pane_count` 0 (as in release). Never close a `tab_id` the worker was moved into.
   The run isn't over until none is left. **Never sweep on a pause on a question**: the
   asking worker's tab stays open, since the reply (§6) is delivered to that live agent.
   Leave any tab the user asked to keep open too.
