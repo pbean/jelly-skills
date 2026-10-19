@@ -51,8 +51,10 @@ cwd: /abs/path/to/repo
 - When `backend` is absent, the runner detects it: a non-empty `$ORCA_TERMINAL_HANDLE`
   means `orca`, and `HERDR_ENV=1` means `herdr`. Both or neither means ask the user once,
   with `orca` as the default answer: a plan with no `backend` key and nothing detectable
-  keeps today's default, `orca`. The resolved value is written into the run-config at
-  normalization, so resume and successors read it from there.
+  keeps today's default, `orca`. The runner writes the resolved value into the run-config
+  as soon as it resolves it (run-plan Step 2, right after normalization) and records it in
+  `run-state.json`. On resume and in successors, `run-state.json`'s `backend` wins over
+  the plan and over detection, so a run never changes backend mid-flight.
 
 ## 2. Phase unit and status tags
 

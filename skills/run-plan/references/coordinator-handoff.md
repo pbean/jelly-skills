@@ -156,13 +156,14 @@ diagnosis only:
   and end your turn. Once the dialog is cleared, the successor takes over by itself.
 - **The composer is still empty** (the line was swallowed while the agent was booting).
   Re-send the line once, then wait once more as in step 7.
-- **Anything else, or still no takeover after the re-send**: the succession failed. Tell
-  the user what you saw. Re-arm yourself with the same flags you armed with at the start,
-  clear `takeover_pending` (atomically), and mark the last `handoffs[]` entry
-  `outcome: failed`. Then ask the user whether to carry on over budget or stop for a
-  manual restart, and end your turn on that question. If the successor's terminal is
-  still open, name it: a successor that wakes later finds `takeover_pending` cleared and
-  stands down.
+- **Anything else, or still no takeover after the re-send**: the succession failed. In
+  one guarded write (below), clear `takeover_pending` and mark the last `handoffs[]` entry
+  `outcome: failed`. If the guard finds `takeover.generation == G+1`, the successor took
+  over after all: that is step 7's confirmation, so go to step 9's success instead.
+  Otherwise tell the user what you saw, re-arm yourself with the same flags you armed with
+  at the start, and ask the user whether to carry on over budget or stop for a manual
+  restart, ending your turn on that question. If the successor's terminal is still open,
+  name it: a successor that wakes later fails its own guard and stands down.
 
 ### 9. Finish
 
@@ -178,6 +179,41 @@ diagnosis only:
   run's cwd and run the run-plan skill on the plan path (Claude Code:
   `/run-plan <plan path>`). That session takes over as the successor (below). End your
   turn.
+
+### Guarded writes
+
+Two writes race each other: the successor's acknowledgment (Taking over step 3) and the
+predecessor's give-up (step 8). A slow successor can pass its first look at
+`takeover_pending` before the predecessor gives up and still reach its write afterward.
+So each of the two re-reads and checks the state under one exclusive lock,
+`<runs dir>/run-state.lock`, and writes only if its check holds. Exactly one of them
+wins:
+
+```bash
+python3 - "<runs dir>/run-state.json" <<'EOF'
+import fcntl, json, os, sys, tempfile
+path = sys.argv[1]
+with open(os.path.join(os.path.dirname(path), "run-state.lock"), "a") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    with open(path) as f:
+        state = json.load(f)
+    if not CHECK:          # the check, below
+        sys.exit(3)        # lost the race: nothing written
+    ...                    # the changes, below
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        json.dump(state, f, indent=2)
+    os.replace(tmp, path)
+EOF
+```
+
+- **Successor**: the check is `state.get("takeover_pending") == <your generation>`; the
+  changes are Taking over step 3's.
+- **Predecessor**: the check is `(state.get("takeover") or {}).get("generation") != G+1`;
+  the changes are step 8's.
+
+Exit 3 means the other side won. Every other `run-state.json` write has one writer and
+stays a plain atomic write.
 
 ## Taking over (you are the successor)
 
@@ -196,8 +232,13 @@ Then, in order:
 2. **Rebind the backend run** recorded in `run-state.json` to your terminal, per the
    backend's §9 and §1. Never create a new run: a second run splits the task history.
 3. **Acknowledge the takeover right away**, because the predecessor is waiting on it.
-   Atomically write `takeover: {generation: <you>, at}`, set `coordinator_generation` to
-   your generation, and clear `takeover_pending`. Log it in `run-log.md`.
+   In one guarded write ("Guarded writes" above), record `takeover: {generation: <you>,
+   at}`, set `coordinator_generation` to your generation, and clear `takeover_pending`,
+   together with any `owner` change the backend's §9 puts in the same write. Log it in
+   `run-log.md`. **Exit 3** means the predecessor gave up and resumed while you were
+   starting: stand down without touching the run, tell the user, and end your turn. When
+   the backend's rebind (step 2) is a separate backend act, re-read `takeover_pending`
+   right before it as well, and stand down the same way if it no longer names you.
 4. **Skip what an earlier generation already settled.** Skip Step 1's confirmations and
    the resume rule that a `[running]` tag means "confirm with the user" (the tag is your
    predecessor's, and it is live). Never re-normalize the plan, and never re-ask the

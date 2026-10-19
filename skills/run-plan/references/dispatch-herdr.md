@@ -104,11 +104,13 @@ label against the legs in `run-state.json`.
 Each attempt gets a new tab in `run-config.cwd`, not focused:
 
 ```
-herdr tab create --cwd <run-config.cwd> --label "S<N> leg <g>: <phase title>" --no-focus
+herdr tab create --workspace <$HERDR_WORKSPACE_ID> --cwd <run-config.cwd> --label "S<N> leg <g>: <phase title>" --no-focus
 ```
 
-Record `.result.tab.tab_id` and `.result.root_pane.pane_id` at once. Then start the agent
-in that pane:
+`--workspace` is your own pane's workspace. Without it herdr uses the *focused* one, so a
+user looking at another workspace would get the run's tabs there. Record
+`.result.tab.tab_id` and `.result.root_pane.pane_id` at once. Then start the agent in that
+pane:
 
 ```
 herdr agent start <name> --kind <run-config.agent> --pane <pane_id> --timeout 120000 -- <args>
@@ -331,10 +333,11 @@ variable or a mismatched id means no: take the handoff fallback. Never probe wit
 acknowledge, so there is nothing to settle and handoff step 4 has nothing to hold back.
 Go straight to the note.
 
-**Launch the successor** (handoff step 6). Open a new tab in `run-config.cwd`, not focused:
+**Launch the successor** (handoff step 6). Open a new tab in your workspace (as in §3) and `run-config.cwd`, not
+focused:
 
 ```
-herdr tab create --cwd <run-config.cwd> --label "run-plan coordinator gen <G+1>" --no-focus
+herdr tab create --workspace <$HERDR_WORKSPACE_ID> --cwd <run-config.cwd> --label "run-plan coordinator gen <G+1>" --no-focus
 ```
 
 Record `.result.tab.tab_id` and `.result.root_pane.pane_id` at once, in `run-log.md` and
@@ -409,8 +412,8 @@ herdr agent prompt <successor> "<one line>" --wait --until working --until block
   step 8.
 
 **Confirm the takeover** (handoff step 7). The successor's §1 rebind is a `run-state.json`
-write: in the same atomic write as its `takeover: {generation: G+1, at}` record, it
-rewrites `owner` to `{"pane_id": "<its $HERDR_PANE_ID>", "generation": <G+1>}`. A successor
+write: in the same guarded write (`coordinator-handoff.md`, "Guarded writes") as its
+`takeover: {generation: G+1, at}` record, it rewrites `owner` to `{"pane_id": "<its $HERDR_PANE_ID>", "generation": <G+1>}`. A successor
 whose first line names generation `takeover_pending` rewrites `owner` without §1's resume
 confirmation: the predecessor's handoff is that confirmation. There is no fenced signal to
 wait for, so poll the file, bounded at 600 s, in one shell call:
@@ -442,5 +445,5 @@ re-send (the same `agent prompt` above), then the takeover wait once more.
 
 **If the succession failed**, leave the successor's tab open and name it to the user (its
 label, `successor_tab` and `successor_pane`) rather than closing it yourself. With
-`takeover_pending` cleared, a successor that wakes later stands down without touching
-`owner`. Never close your own tab either: the user closes it once you end your turn.
+`takeover_pending` cleared by your guarded write, a successor that wakes later fails its
+guard and stands down without touching `owner`. Never close your own tab either: the user closes it once you end your turn.
