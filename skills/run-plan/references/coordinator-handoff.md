@@ -153,7 +153,9 @@ diagnosis only:
 - **A permission or trust dialog** is on screen. Only a person can clear it. Tell the
   user what it shows and give them the one line from step 6 in case its composer is
   empty after they clear it. **Don't re-send it yourself.** Leave `takeover_pending` set
-  and end your turn. Once the dialog is cleared, the successor takes over by itself.
+  and end your turn. If the line was sent, the successor takes over by itself once the
+  dialog is cleared. If it was never sent (the backend's §9 says so), tell the user plainly
+  that they must submit the line after clearing the dialog.
 - **The composer is still empty** (the line was swallowed while the agent was booting).
   Re-send the line once, then wait once more as in step 7.
 - **Anything else, or still no takeover after the re-send**: the succession failed. In

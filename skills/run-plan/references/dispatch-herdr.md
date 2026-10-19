@@ -430,8 +430,8 @@ herdr agent start <successor> --kind <kind> --pane <successor_pane> --timeout 12
   `.result.argv` with `launch-command`'s `argv`; if the executable or the arguments differ
   (herdr runs the kind's canonical executable from PATH), log it and tell the user, then go
   on.
-- **`agent_not_ready`**: a trust or permission dialog came up at startup. That is handoff
-  step 8's dialog branch, with nothing sent yet.
+- **`agent_not_ready`**: a trust or permission dialog came up at startup, with nothing
+  sent yet: a pre-send dialog (below).
 - **A timeout or any other error**: the one diagnostic read below, then handoff step 8.
   On a lost receipt, settle it with `herdr agent get <successor>` before anything else,
   never a second `agent start`.
@@ -463,7 +463,16 @@ Exit 124 means herdr never detected an agent there: the one diagnostic
 read, then handoff step 8. Once named, wait for its interface, since a line typed into a
 booting agent can be lost:
 `herdr agent wait <successor> --until idle --until blocked --timeout 120000`. `blocked` is
-handoff step 8's dialog branch; a `timeout` error is the diagnostic read.
+a pre-send dialog (below); a `timeout` error is the diagnostic read.
+
+**A pre-send dialog** (`agent_not_ready`, `blocked` from the interface wait, or
+`agent_blocked` from the prompt below): herdr typed nothing, so clearing the dialog leaves
+an idle successor that never got the line. Do one `herdr agent read <successor> --source visible`
+(this is not handoff step 8's diagnostic read), tell the user what it shows, and wait once
+for them to clear it: `herdr agent wait <successor> --until idle --until done --timeout 600000`.
+On `idle` or `done`, send the line below; that is still the first send. A `timeout`, or a
+second pre-send dialog → handoff step 8's dialog branch with the line unsent, without the
+diagnostic read.
 
 **Send one line** (handoff step 6 has the text; it has no newline in it):
 
@@ -473,8 +482,10 @@ herdr agent prompt <successor> "<one line>" --wait --until working --until block
 
 - **Returns `agent_status: "working"`**: the line was submitted and the turn started. Go
   to the takeover wait.
-- **Returns `agent_status: "blocked"`, or `agent_blocked`**: a dialog. That is handoff step
-  8's dialog branch: tell the user, and don't re-send.
+- **Returns `agent_status: "blocked"`**: a dialog came up after the line was submitted.
+  That is handoff step 8's dialog branch: tell the user, and don't re-send.
+- **`agent_blocked`**: the successor was already `blocked`, and herdr sent nothing. That is
+  a pre-send dialog (above), not a send.
 - **`agent_prompt_stalled` or `timeout`**: neither proves the line was lost. Do the one
   diagnostic read now instead of waiting ten minutes first, and decide from it:
   - Work is visible → the line landed. Go to the takeover wait; if that runs out, the
