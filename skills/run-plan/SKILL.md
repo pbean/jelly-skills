@@ -68,7 +68,7 @@ in Step 0; below, `ctxcheck` means `python3 <ctxcheck_path>`).
    prompt extraction, outcome records, write ownership, normalization, and the canonical
    wrapper suffix.
 2. `references/dispatch-<backend>.md` — the dispatch file for this run's backend ("Dispatch
-   backends" below). Load it once Step 2 has resolved `backend`; a successor reads
+   backends" below). Load it once Step 1 has resolved `backend`; a successor reads
    `backend` from `run-state.json`. Follow its §0 before any backend command: it resolves
    the backend's binary and its version-matched guide or usage. Never guess flags from
    memory. Below, "dispatch §N" means section N of that file.
@@ -118,23 +118,26 @@ and the records say. Otherwise, arm yourself (Context budget) and continue with 
 
 ## Step 1 — Normalize
 
-Run the normalization procedure in plan-format.md §6: detect the layout, translate legacy
-status markers, confirm the phase mapping with the user when the layout is legacy or any
-status is ambiguous, annotate in place (tags + run-config), and extract every pending
-phase's prompt to `<runs dir>/phase-N.src.txt`.
+**Resolve `backend` first**: the run-config defaults that normalization synthesizes depend
+on it (plan-format.md §1). When `run-state.json` already exists, its recorded `backend`
+wins: never detect or ask again mid-run. A `run-state.json` with no `backend` key predates
+backends (run-plan 1.3 and older): take the legacy value §1 names. Otherwise use the plan's
+`backend` key, or, when it is absent, detect it per §1.
+
+Then run the normalization procedure in plan-format.md §6: detect the layout, translate
+legacy status markers, confirm the phase mapping with the user when the layout is legacy or
+any status is ambiguous, synthesize and confirm (once) any missing run-config keys per §1,
+annotate in place (tags + run-config, including the resolved `backend`), and extract every
+pending phase's prompt to `<runs dir>/phase-N.src.txt`.
 
 A plan with **no prompt-bearing phases is refused** with the message in that procedure —
 never invent phases from prose.
 
 ## Step 2 — Run config and state
 
-Parse (or synthesize and confirm — once) the run-config block per plan-format.md §1,
-including `backend`. When `run-state.json` already exists, its recorded `backend` wins:
-never detect or ask again mid-run. A `run-state.json` with no `backend` key predates
-backends (run-plan 1.3 and older): take the legacy value §1 names and record it in the
-state and the run-config before going on. Otherwise, when the key is absent, detect it per §1 and
-write the resolved value into the plan's run-config block now (Step 1 has already run, so
-normalization did not write it). Then load
+Parse the run-config block per plan-format.md §1; Step 1 has already synthesized,
+confirmed, and written any missing keys, `backend` among them. Record the resolved
+`backend` in `run-state.json` (a legacy state file without the key gets it now). Then load
 `references/dispatch-<backend>.md` (Contracts to load first). Create the runs directory
 `<runs dir>` containing:
 

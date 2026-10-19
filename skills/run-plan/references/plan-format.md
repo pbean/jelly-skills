@@ -47,12 +47,13 @@ cwd: /abs/path/to/repo
   herdr kind), otherwise ask; `model: opus` only
   when `agent: claude`, otherwise none; `cwd` = the current worktree; `branch` recovered
   from plan prose), confirms the synthesized block with the user **once** at run start, and
-  writes it into the plan during normalization.
+  writes it into the plan during normalization. `backend` is resolved before any other
+  default is synthesized, since the `agent` default depends on it.
 - When `backend` is absent, the runner detects it: a non-empty `$ORCA_TERMINAL_HANDLE`
   means `orca`, and `HERDR_ENV=1` means `herdr`. Both or neither means ask the user once,
   with `orca` as the default answer: a plan with no `backend` key and nothing detectable
-  keeps today's default, `orca`. The runner writes the resolved value into the run-config
-  as soon as it resolves it (run-plan Step 2, right after normalization) and records it in
+  keeps today's default, `orca`. The runner resolves it first (run-plan Step 1, before
+  normalization), writes it into the run-config during normalization, and records it in
   `run-state.json`. On resume and in successors, `run-state.json`'s `backend` wins over
   the plan and over detection, so a run never changes backend mid-flight. A
   `run-state.json` without a `backend` key comes from an Orca-only runner (1.3 and
