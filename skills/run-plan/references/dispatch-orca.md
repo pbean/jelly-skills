@@ -1,9 +1,7 @@
 # Dispatch backend: Orca orchestration
 
-This file is the **only** place run-plan names its dispatch backend. To move to another
-backend (herdr, plain tmux, …), write a sibling `dispatch-<name>.md` with the same section
-headings — preamble text, completion paragraph, dispatch/wait/retry procedure — and nothing
-in SKILL.md or plan-format.md changes.
+This file is run-plan's Orca dispatch backend, and its section numbers are the contract
+SKILL.md cites (see SKILL.md "Dispatch backends").
 
 It documents the loop **shape** and the pitfalls, for Orca 1.4.229 and later. The command
 lines below were checked against `orca-ide` 1.4.229's `--help` and bundled guide on

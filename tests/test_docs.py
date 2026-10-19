@@ -240,7 +240,8 @@ def _section(path: Path, heading: str) -> str:
 
 RUN_PLAN = SKILLS / "run-plan"
 HANDOFF = RUN_PLAN / "references" / "coordinator-handoff.md"
-DISPATCH = RUN_PLAN / "references" / "dispatch-orca.md"
+DISPATCH_FILES = sorted((RUN_PLAN / "references").glob("dispatch-*.md"))
+DISPATCH_ORCA = RUN_PLAN / "references" / "dispatch-orca.md"
 # Names that would tie the backend-neutral handoff doctrine to Orca.
 ORCA_NAMES = re.compile(r"\borca\b|orca-ide|\borchestration\b|consumer_fenced|run_required"
                         r"|--ack\b|\b(?:run-(?:use|create|current|list|show)"
@@ -269,7 +270,7 @@ class CoordinatorSuccessionDocsTest(unittest.TestCase):
                         self.assertNotRegex(text, rf"(?<![\w-]){re.escape(verb)}(?![\w-])")
 
     def test_section_9_verbs(self):
-        section = _section(DISPATCH, "## 9. Coordinator succession")
+        section = _section(DISPATCH_ORCA, "## 9. Coordinator succession")
         _front, code, prose = _split(section)
         verbs = {gv for snippet in [*code, *INLINE.findall(prose)]
                  for gv in ORCA_VERB.findall(snippet)}
@@ -285,7 +286,7 @@ class CoordinatorSuccessionDocsTest(unittest.TestCase):
 
     def test_section_9_terminal_verbs_name_their_terminal(self):
         """Without --terminal, Orca targets the worktree's active terminal."""
-        section = _section(DISPATCH, "## 9. Coordinator succession")
+        section = _section(DISPATCH_ORCA, "## 9. Coordinator succession")
         _front, code, _prose = _split(section)
         for line in code:
             m = re.search(r"terminal (show|wait|send|read)\b", line)
@@ -315,6 +316,31 @@ class CoordinatorSuccessionDocsTest(unittest.TestCase):
                        "handoffs[]", "references/coordinator-handoff.md", "--disarm"):
             self.assertIn(needle, text)
 
+
+
+class DispatchShapeTest(unittest.TestCase):
+    """Every dispatch backend file has the sections SKILL.md cites by number,
+    and SKILL.md itself names no backend outside "## Dispatch backends"."""
+
+    def test_dispatch_files_share_sections(self):
+        self.assertTrue(DISPATCH_FILES, "no references/dispatch-*.md found")
+        for path in DISPATCH_FILES:
+            with self.subTest(file=path.name):
+                text = path.read_text()
+                numbers = [int(n) for n in re.findall(r"^## (\d)\. ", text, re.MULTILINE)]
+                self.assertEqual(numbers, list(range(10)))
+                for sub in ("8a", "8b"):
+                    self.assertRegex(text, rf"(?m)^### {sub}\. ")
+
+    def test_skill_md_is_backend_neutral(self):
+        path = RUN_PLAN / "SKILL.md"
+        heading = "## Dispatch backends"
+        # The frontmatter's description and compatibility name the backends on purpose.
+        _front, code, prose = _split(path.read_text().replace(_section(path, heading), ""))
+        body = "\n".join([*code, prose])
+        self.assertEqual(ORCA_NAMES.findall(body), [])
+        self.assertEqual([v for s in [*code, *INLINE.findall(prose)]
+                          for v in ORCA_VERB.findall(s)], [])
 
 def frontmatter(path: Path) -> tuple[dict, dict]:
     """Top-level keys and the metadata block's keys, from simple YAML."""

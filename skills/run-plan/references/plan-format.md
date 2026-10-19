@@ -21,11 +21,15 @@ cwd: /abs/path/to/repo
 ```
 ````
 
-- Required keys: `agent`, `branch`, `cwd`. `agent` is an Orca agent id (`claude`, `codex`,
-  `cursor`, `opencode`, … — `worker-start --help` lists the current set); `cwd` is where
-  phase sessions run; `branch` is the program's shared branch.
-- Optional keys: `model` (a provider model id, passed to the backend only when present —
-  omit it for agents that take their model from their own config; `worker-start --help`
+- Required keys: `agent`, `branch`, `cwd`. `agent` is the backend's agent id: an Orca agent
+  id (`claude`, `codex`, `cursor`, `opencode`, … — `worker-start --help` lists the current
+  set), or a herdr `--kind` (`herdr agent` lists the kinds); `cwd` is where phase sessions
+  run; `branch` is the program's shared branch.
+- Optional keys: `backend` (`orca` | `herdr`: the dispatch backend; detected when absent,
+  see the last bullet), `agent_args` (herdr only: a string passed verbatim after `--` to
+  `herdr agent start`, typically permission flags such as `--dangerously-skip-permissions`
+  for an unattended `claude`), `model` (a provider model id, passed to the backend only
+  when present — omit it for agents that take their model from their own config; `worker-start --help`
   lists which agents accept one), `effort` (a reasoning-effort level such as `high`, passed
   only together with `model` and only for agents that support it; leave it out to keep the
   agent's default), `max_consecutive_failures` (default 3), `continuation_cap` (default 3), and two context
@@ -43,6 +47,11 @@ cwd: /abs/path/to/repo
   when `agent: claude`, otherwise none; `cwd` = the current worktree; `branch` recovered
   from plan prose), confirms the synthesized block with the user **once** at run start, and
   writes it into the plan during normalization.
+- When `backend` is absent, the runner detects it: a non-empty `$ORCA_TERMINAL_HANDLE`
+  means `orca`, and `HERDR_ENV=1` means `herdr`. Both or neither means ask the user once,
+  with `orca` as the default answer: a plan with no `backend` key and nothing detectable
+  keeps today's default, `orca`. The resolved value is written into the run-config at
+  normalization, so resume and successors read it from there.
 
 ## 2. Phase unit and status tags
 
