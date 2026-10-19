@@ -380,11 +380,12 @@ Then start the agent from `ctxcheck launch-command --json`. Its `runtime` picks 
 | anything else | none: use `pane run` below |
 
 Each kind is in `herdr agent`'s kinds list (0.9.5). When the runtime has a kind **and**
-`argv[0]` is the agent's own executable, start it readiness-aware, with `argv[1:]` as the
-arguments. Judge `argv[0]` by its basename, with any directory and `.exe` stripped:
-`/usr/bin/node` is still an interpreter. An interpreter is `node`, `nodejs`, `bun` or
-`deno`, optionally followed by a version (`node22`), and its `argv` carries an
-interpreter and a script path first, so it never takes this path:
+`argv[0]` is a bare command name (no `/` or `\`) for the agent's own executable, start it
+readiness-aware, with `argv[1:]` as the arguments. A path-qualified `argv[0]`, such as
+`/opt/codex/bin/codex`, never takes this path: `--kind` runs the kind's canonical
+executable from PATH and drops the path, so another install or wrapper could start.
+Neither does an interpreter: `node`, `nodejs`, `bun` or `deno`, optionally followed by a
+version (`node22`) or `.exe`. Its `argv` carries an interpreter and a script path first:
 
 ```
 herdr agent start <successor> --kind <kind> --pane <successor_pane> --timeout 120000 -- <argv[1:]>
@@ -403,8 +404,8 @@ herdr agent start <successor> --kind <kind> --pane <successor_pane> --timeout 12
   On a lost receipt, settle it with `herdr agent get <successor>` before anything else,
   never a second `agent start`.
 
-Otherwise (no kind, or an interpreter `argv`), type your own command into the pane and
-detect the agent:
+Otherwise (no kind, a path-qualified `argv[0]`, or an interpreter), type your own command
+into the pane and detect the agent:
 
 ```
 herdr pane run <successor_pane> "<shell_command>"
