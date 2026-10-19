@@ -267,7 +267,7 @@ Rolling waits, re-issued in a loop until a terminal event:
 - Answer a worker's `ask` with `<orca> orchestration reply --id <msg_id> --body "<answer>" --json`.
   Send mid-phase follow-ups with `<orca> orchestration send --to dispatch:<id> ...` — never by
   typing into its terminal. Workers pick them up at their checkpoints (§8b).
-- **Before ending the run** (any exit state), enumerate leftovers with
+- **Before ending the run** (Completed or Blocked; never on a pause on a question), enumerate leftovers with
   `<orca> orchestration worker-list --run <run_id> --terminal-state reclaimable --json` and
   release each one listed. Rows page at 100: while `page.hasMore`, continue with
   `--cursor <page.nextCursor>`. The run isn't over until that list is empty.

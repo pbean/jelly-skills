@@ -101,14 +101,20 @@ label against the legs in `run-state.json`.
 
 ## 3. Starting a worker
 
-Each attempt gets a new tab in `run-config.cwd`, not focused:
+Each attempt gets a new tab in `run-config.cwd`, not focused, in your own pane's
+**current** workspace. Resolve it right before each `tab create`:
 
 ```
-herdr tab create --workspace <$HERDR_WORKSPACE_ID> --cwd <run-config.cwd> --label "S<N> leg <g>: <phase title>" --no-focus
+herdr pane current --current
+herdr tab create --workspace <workspace_id> --cwd <run-config.cwd> --label "S<N> leg <g>: <phase title>" --no-focus
 ```
 
-`--workspace` is your own pane's workspace. Without it herdr uses the *focused* one, so a
-user looking at another workspace would get the run's tabs there. Record
+`<workspace_id>` is `.result.pane.workspace_id` from the first call. Without `--workspace`
+herdr uses the *focused* workspace, so a user looking at another one would get the run's
+tabs there. Don't use `$HERDR_WORKSPACE_ID`: a process keeps its launch-time value after
+its pane is moved to another workspace, and that workspace may since have been closed.
+`--current` still resolves after a move, because herdr keeps the old pane id as an alias.
+Record
 `.result.tab.tab_id` and `.result.root_pane.pane_id` at once. Then start the agent in that
 pane:
 
@@ -270,9 +276,11 @@ done):
   way to send a mid-phase follow-up while the worker is `working`: typing into a busy
   agent races its own output. Queue a follow-up for the next settled state, or leave it
   out.
-- **Before ending the run** (any exit state), sweep: for every leg's `tab_id` in
-  `run-state.json`, if `herdr tab get <tab_id>` still finds it, close it. The run isn't
-  over until none is left.
+- **Before ending the run** (Completed or Blocked; SKILL.md Exit states), sweep: for every
+  leg's `tab_id` in `run-state.json`, if `herdr tab get <tab_id>` still finds it, close it.
+  The run isn't over until none is left. **Never sweep on a pause on a question**: the
+  asking worker's tab stays open, since the reply (§6) is delivered to that live agent.
+  Leave any tab the user asked to keep open too.
 
 ## 8. Canonical worker-facing text
 
@@ -333,11 +341,12 @@ variable or a mismatched id means no: take the handoff fallback. Never probe wit
 acknowledge, so there is nothing to settle and handoff step 4 has nothing to hold back.
 Go straight to the note.
 
-**Launch the successor** (handoff step 6). Open a new tab in your workspace (as in §3) and `run-config.cwd`, not
-focused:
+**Launch the successor** (handoff step 6). Open a new tab in your current workspace,
+resolved right before as in §3, and `run-config.cwd`, not focused:
 
 ```
-herdr tab create --workspace <$HERDR_WORKSPACE_ID> --cwd <run-config.cwd> --label "run-plan coordinator gen <G+1>" --no-focus
+herdr pane current --current
+herdr tab create --workspace <workspace_id> --cwd <run-config.cwd> --label "run-plan coordinator gen <G+1>" --no-focus
 ```
 
 Record `.result.tab.tab_id` and `.result.root_pane.pane_id` at once, in `run-log.md` and
