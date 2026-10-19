@@ -166,25 +166,32 @@ herdr agent start <name> --kind <run-config.agent> --pane <pane_id> --timeout 12
 - **`agent_name_taken`**: a live agent already has this name. Check `herdr agent get
   <name>`: if its `tab_id` is this attempt's recorded tab, an earlier start of this attempt
   went through, so treat it as the lost-receipt case below. Any other tab means another
-  run holds the name: never prompt or close that agent. Close this attempt's tab and mark
-  the phase `[blocked]` with the clash.
+  run holds the name: never prompt or close that agent. Clean up this attempt (below) and
+  mark the phase `[blocked]` with the clash.
 - **A timeout or any other error** (`agent_pane_busy`, `unsupported_agent_kind`,
   `invalid_agent_argument`, …): read once (`herdr agent read <name> --source visible`;
-  it errors if no agent came up), close the tab (`herdr tab close <tab_id>`), and count a
-  failed attempt (§7) only once the start is **confirmed dead** (below). An error a fix to
+  it errors if no agent came up), clean up the attempt (below), and count a failed
+  attempt (§7) only once the start is **confirmed dead** (below). An error a fix to
   run-config would cure (a bad kind or argument) is for the user: mark the phase
   `[blocked]` with the error rather than spend attempts.
 - **Lost receipt** (a transport error with no JSON). Never re-run `agent start` blind: a
   second agent in another tab puts two editors in one checkout. Check `herdr agent get
   <name>` first. If it answers the agent, carry on from that as the receipt; if it answers
-  `agent_not_found`, check `herdr tab list` for the recorded tab, close it, and count a
-  failed attempt once confirmed dead.
+  `agent_not_found`, check `herdr tab list` for the recorded tab, clean up the attempt
+  (below), and count a failed attempt once confirmed dead.
+
+**Cleaning up a failed start** follows release's rule (§7): a start can hang for up to
+two minutes, and the user may split the attempt's tab or move a pane into it meanwhile.
+`herdr tab get <tab_id>`: at `pane_count` 1, close the tab (`herdr tab close <tab_id>`);
+otherwise close only the attempt's root pane (`herdr pane close <pane_id>`) and leave the
+rest of the tab to the user.
 
 **Confirmed dead**, before any failed start is retried: `herdr agent get <name>` answers
-`agent_not_found`, and `herdr tab get <tab_id>` errors. A start that timed out may still
-have launched the agent, and a `tab close` that errors (including `confirmation_required`)
-may have closed nothing. Anything else → don't start attempt `k+1`; tell the user what is
-still running and stop, as release does (§7).
+`agent_not_found`, and whatever cleanup closed is gone: `herdr tab get <tab_id>` errors
+after a tab close, `herdr pane get <pane_id>` after a pane close. A start that timed out
+may still have launched the agent, and a close that errors (including
+`confirmation_required`) may have closed nothing. Anything else → don't start attempt
+`k+1`; tell the user what is still running and stop, as release does (§7).
 
 A start whose outcome is unknown is the lost-receipt case: settle it by `agent get`
 before anything else.
