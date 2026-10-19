@@ -7,6 +7,49 @@ and each skill is versioned independently in its `SKILL.md` metadata.
 
 ## [Unreleased]
 
+### run-plan 1.4.0
+
+A second dispatch backend, herdr, alongside Orca. Checked against herdr 0.9.5's
+group listings and docs, but not yet live-validated: the manual smoke test in
+`tests/e2e/README.md` (section 6) is its first real run.
+
+#### Added
+
+- `references/dispatch-herdr.md`: run-plan's herdr backend. Each leg attempt
+  runs in its own unfocused tab, started readiness-aware with `herdr agent
+  start`. The prompt is delivered as one line with `herdr agent prompt --wait`,
+  whose `working` return proves the turn started. The coordinator waits on the
+  agent's lifecycle state with rolling `herdr agent wait`s and reads a
+  per-attempt result file (or ask file) as the completion report (or
+  escalation). Release closes the attempt's tab. Coordinator succession opens a
+  successor tab and confirms the takeover from `run-state.json`, since herdr has
+  no message bus, task DAG or run fencing.
+- Optional run-config key `backend` (`orca` | `herdr`). When it is absent, the
+  runner detects it (an Orca terminal handle means `orca`, `HERDR_ENV=1` means
+  `herdr`), asks once if both or neither apply, and writes the answer into the
+  plan and `run-state.json`.
+- Optional run-config key `agent_args` (herdr only): a string passed verbatim to
+  the worker agent after the model and effort, typically permission flags such
+  as `--dangerously-skip-permissions` for an unattended `claude`.
+- Doc tests: every dispatch file has the same `## 0.`-`## 9.` / `### 8a.` /
+  `### 8b.` section shape; SKILL.md's body names no backend outside "Dispatch
+  backends"; every `herdr <group> <verb>` and its flags in `dispatch-herdr.md`
+  exist in the installed herdr's usage lines (skipped without herdr).
+
+#### Changed
+
+- SKILL.md loads `references/dispatch-<backend>.md` and describes its loop and
+  failure machine in backend-neutral vocabulary ("dispatch §N", leg record,
+  start receipt, completion report, escalation, release, retry on the same leg),
+  which each dispatch file defines. "Swapping the dispatch backend" is now
+  "Dispatch backends", with one row per backend and the section contract.
+- `coordinator-handoff.md`'s inbox steps (settle, stop acknowledging, process
+  the replayed batch) apply only when the backend has an inbox, and the takeover
+  is confirmed by `run-state.json` alone when the backend has no fencing.
+- The handoff and SKILL.md neutrality checks now also reject herdr names.
+- `dispatch-orca.md`'s opening no longer claims to be the only backend file.
+  Orca behavior is unchanged.
+
 ### run-plan 1.3.0
 
 Checked against Orca 1.4.229, whose `orca-cli` and `orchestration` skills are now
@@ -48,6 +91,16 @@ stubs that load a version-matched guide from the binary.
   last generation that finishes instead of handing off. Its README covers
   Claude Code's folder-trust prompt and records plain `run-use` fencing as
   verified against Orca 1.4.229.
+
+### session-plan 1.1.2
+
+- The plan template documents the optional `backend` and `agent_args`
+  run-config keys, and that `agent` is a herdr `--kind` under herdr.
+
+### context-budget 1.1.1
+
+- `runtimes.md` and `worker.md`: Copilot CLI can't be a phase worker under
+  Orca, but it can under run-plan's herdr backend, which has a `copilot` kind.
 
 ### session-plan 1.1.1
 

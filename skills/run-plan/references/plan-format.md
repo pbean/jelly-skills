@@ -43,7 +43,8 @@ cwd: /abs/path/to/repo
 - The runner parses only the **first** `run-config` fence. Unknown keys are ignored, not
   errors.
 - If the block or a required key is missing, the runner synthesizes defaults (`agent` = the
-  coordinator's own agent when it is an Orca agent id, otherwise ask; `model: opus` only
+  coordinator's own agent when the backend supports it as a worker (an Orca agent id, or a
+  herdr kind), otherwise ask; `model: opus` only
   when `agent: claude`, otherwise none; `cwd` = the current worktree; `branch` recovered
   from plan prose), confirms the synthesized block with the user **once** at run start, and
   writes it into the plan during normalization.

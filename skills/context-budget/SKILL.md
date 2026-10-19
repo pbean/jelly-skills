@@ -14,7 +14,7 @@ compatibility: >-
   other runtime ctxcheck reports that the session cannot be measured (exit 3).
 metadata:
   author: pbean
-  version: "1.1.0"
+  version: "1.1.1"
 hooks:
   PostToolUse:
     - matcher: "Bash"

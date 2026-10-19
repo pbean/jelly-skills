@@ -14,7 +14,8 @@ can't cover the parts that only happen inside a real Orca run:
 This kit drives exactly that path with a 3-phase dummy plan, [`smoke-plan.md`](smoke-plan.md),
 whose gates are both 1%. Nothing has to fill up: every session is over 1% from its first
 turn. It is a manual test: it starts real Orca workers and costs three coordinator and four
-worker sessions, all short. Expect it to take 5-15 minutes.
+worker sessions, all short. Expect it to take 5-15 minutes. Sections 1-5 run it under
+Orca; [section 6](#6-running-the-smoke-test-under-herdr) runs the same plan under herdr.
 
 The commands below work in bash, zsh and fish. Run them from the jelly-skills checkout.
 
@@ -172,3 +173,96 @@ means fencing changed from what `skills/run-plan/references/dispatch-orca.md` §
    ```bash
    rm -rf ~/jelly-smoke ~/.claude/plans/jelly-smoke.md ~/.claude/plans/runs/jelly-smoke
    ```
+
+## 6. Running the smoke test under herdr
+
+The same `smoke-plan.md` drives run-plan's herdr backend
+(`skills/run-plan/references/dispatch-herdr.md`). It is just as manual and costs the same
+real sessions: three coordinators and four workers. If you ran the Orca variant first, do
+its clean-up (section 5) first: both variants use the same plan copy and runs dir.
+
+**Neither half of the herdr backend has been live-validated.** The worker lifecycle
+(§§3-7) and coordinator succession (§9) were written against herdr 0.9.5's group listings
+and docs, with `HERDR_ENV` unset, so this run is their first contact with a real server.
+Watch for the checks at the end of this section.
+
+### Set up
+
+1. Reinstall the skills as in section 1. You need herdr 0.9.5 or newer (`herdr --version`).
+   Run `herdr integration status`: the worker kind (`claude`) should show as installed and
+   current. If it doesn't, `herdr integration install claude` gives herdr reliable state
+   for the worker. run-plan only warns about this; it never installs one.
+2. Create the scratch repo as in section 2, **without** `orca-ide repo add`. Make the
+   plan copy with two extra run-config lines, `backend: herdr` and
+   `agent_args: --dangerously-skip-permissions`:
+
+   ```bash
+   awk -v scratch="$HOME/jelly-smoke" '{ gsub("@SCRATCH@", scratch) } /^agent: claude$/ { print "backend: herdr"; print; print "agent_args: --dangerously-skip-permissions"; next } 1' tests/e2e/smoke-plan.md > ~/.claude/plans/jelly-smoke.md
+   ```
+
+   herdr launches each worker with no flags but the model and `agent_args`, so without
+   that line every worker stops at its first permission prompt.
+
+### Run it
+
+1. Open a herdr pane and `cd ~/jelly-smoke`. `echo $HERDR_ENV` must print `1`: the
+   coordinator refuses to drive herdr from outside it.
+2. Start Claude Code there with the posture the successor should have, as in section 3
+   (`claude --dangerously-skip-permissions`), and answer the folder-trust dialog.
+3. Run `/run-plan /home/<you>/.claude/plans/jelly-smoke.md`, and leave the run alone
+   until it reports that it is finished.
+
+### What you should see
+
+The order of events is the same as in section 4. What differs is how herdr shows them:
+
+- **The run binds to your pane.** `run-state.json` shows `backend: herdr`, a `run_id`
+  like `rp3f9a`, and `owner.pane_id` equal to your pane's `$HERDR_PANE_ID`.
+- **Each leg attempt is a tab of its own.** A tab labelled like
+  "S1 leg 1: <phase title>" opens without taking focus and runs the worker, named
+  `<run_id>-s1-l1-a1`. It closes when the attempt settles. Phase 1 opens two (legs 1 and
+  2), and phases 2 and 3 one each.
+- **A result file per attempt.** The runs dir gains `phase-1-l1-a1.result.md`, whose
+  first line is `PHASE-STATUS: continuation-required`, then `phase-1-l2-a1.result.md`,
+  `phase-2-l1-a1.result.md` and `phase-3-l1-a1.result.md`, each starting
+  `PHASE-STATUS: complete`. There is no `worker_done` message: these files are the
+  completion reports.
+- **A successor tab per generation.** Each handoff opens a "run-plan coordinator gen 2"
+  (later "gen 3") tab that receives one line of prompt. There is no `consumer_fenced` here:
+  the predecessor confirms the takeover only when `run-state.json` shows
+  `takeover.generation` at the new generation, and `owner.pane_id` moves to the
+  successor's pane.
+- **The run ends with no leg tabs left.** The last generation closes every leg tab still
+  open before it reports. The coordinator tabs stay open for you to read.
+
+Useful checks while it runs, from another herdr pane:
+
+```bash
+cat ~/.claude/plans/runs/jelly-smoke/run-state.json
+ls ~/.claude/plans/runs/jelly-smoke/
+herdr agent list
+herdr tab list
+```
+
+### First-run checks
+
+Because nothing above has been validated live, confirm these and report any that differ.
+Each difference is drift in `dispatch-herdr.md`:
+
+- The delivery `herdr agent prompt … --wait --until working --until blocked` returns with
+  `agent_status: "working"` (§5), not `agent_prompt_stalled`.
+- `herdr tab create` answers `.result.tab.tab_id` and `.result.root_pane.pane_id`, and
+  `herdr agent start` answers `type: "agent_started"` with `.result.agent` and
+  `.result.argv` (§3). `run-state.json`'s legs hold those ids.
+- After a tab closes, `herdr agent get <that attempt's name>` answers `agent_not_found`
+  (§7).
+- At the first handoff, the successor tab opens, `herdr pane current --current` returns
+  `.result.pane.pane_id` (§9's probe), and the predecessor's takeover poll exits 0 rather
+  than running out its 600 s.
+
+### Clean up
+
+Close the "run-plan coordinator gen 2" and "gen 3" tabs and your own pane when you are
+done reading them, and check that `herdr tab list` shows no "S<N> leg" tab left. Then
+remove leftover markers and the scratch files as in section 5, steps 2 and 3. There is no
+Orca repo to remove.

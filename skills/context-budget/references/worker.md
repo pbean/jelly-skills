@@ -130,7 +130,8 @@ remaining.
   `ctxcheck install-statusline <runtime>` and `ctxcheck install-hook <runtime>`.
   None of the three backstops is live-verified. Antigravity's warning arrives
   before the next model call (`PreInvocation`), not after a tool call.
-  Copilot is not an Orca worker agent, so it never runs as a phase worker.
+  Copilot is not an Orca worker agent, so under Orca it never runs as a phase
+  worker. Under run-plan's herdr backend (its `copilot` kind) it can.
 
 Installing a backstop edits the user's agent configuration. A worker never
 runs an installer. If there is no backstop, your boundary checks are the
