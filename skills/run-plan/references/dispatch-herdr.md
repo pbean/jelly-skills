@@ -326,15 +326,19 @@ the takeover is confirmed by `run-state.json` alone (§1's `owner` is the conven
 stands in for a fence).
 
 **Am I inside a herdr pane?** (handoff step 1.) Yes when `HERDR_ENV` is `1`, `$HERDR_PANE_ID`
-is non-empty, **and** this answers `type: "pane_info"` with `.result.pane.pane_id` equal to
-`$HERDR_PANE_ID`:
+is non-empty, **and** this answers `type: "pane_info"`:
 
 ```
 herdr pane current --current
 ```
 
-Also check that `run-state.json`'s `owner.pane_id` is that pane (§1). An error, a missing
-variable or a mismatched id means no: take the handoff fallback. Never probe with a bare
+Don't require `.result.pane.pane_id` to equal `$HERDR_PANE_ID`. A cross-workspace
+`pane move` changes the live id, and the process keeps its launch-time `$HERDR_PANE_ID`,
+which herdr retains as an alias (0.9.5 cli-reference). So `$HERDR_PANE_ID` is your
+identity for the life of the process. That is why §1 records it, and why the successor
+records its own. Also check that `run-state.json`'s `owner.pane_id` equals
+`$HERDR_PANE_ID` (§1). An error, a missing variable or a mismatched owner means no: take
+the handoff fallback. Never probe with a bare
 `herdr pane current` (it answers for the focused pane, which can be another agent's).
 
 **Settle the inbox** (handoff step 2). herdr has no inbox and no deliveries to
@@ -393,14 +397,22 @@ herdr pane run <successor_pane> "<shell_command>"
 ```
 
 `<shell_command>` is `launch-command`'s `shell_command`, verbatim, as one argument. Then
-poll for detection, bounded at 180 s in one shell call, and name it:
+poll for detection, bounded at 180 s in one shell call, and name it. The deadline is in
+Python, not GNU `timeout`, which stock macOS lacks:
 
 ```
-timeout 180 sh -c 'until herdr agent get "$0" >/dev/null 2>&1; do sleep 3; done' <successor_pane>
+python3 - <successor_pane> <<'EOF'
+import subprocess, sys, time
+deadline = time.monotonic() + 180
+while subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True).returncode:
+    if time.monotonic() > deadline:
+        sys.exit(124)
+    time.sleep(3)
+EOF
 herdr agent rename <successor_pane> <successor>
 ```
 
-Exit 124 from `timeout` means herdr never detected an agent there: the one diagnostic
+Exit 124 means herdr never detected an agent there: the one diagnostic
 read, then handoff step 8. Once named, wait for its interface, since a line typed into a
 booting agent can be lost:
 `herdr agent wait <successor> --until idle --until blocked --timeout 120000`. `blocked` is
@@ -425,10 +437,24 @@ write: in the same guarded write (`coordinator-handoff.md`, "Guarded writes") as
 `takeover: {generation: G+1, at}` record, it rewrites `owner` to `{"pane_id": "<its $HERDR_PANE_ID>", "generation": <G+1>}`. A successor
 whose first line names generation `takeover_pending` rewrites `owner` without §1's resume
 confirmation: the predecessor's handoff is that confirmation. There is no fenced signal to
-wait for, so poll the file, bounded at 600 s, in one shell call:
+wait for, so poll the file, bounded at 600 s, in one shell call (a Python deadline, as
+above):
 
 ```
-timeout 600 sh -c 'until python3 -c "import json,sys; sys.exit((json.load(open(sys.argv[1])).get(\"takeover\") or {}).get(\"generation\") != int(sys.argv[2]))" "$0" "$1" 2>/dev/null; do sleep 5; done' "<runs dir>/run-state.json" "<G+1>"
+python3 - "<runs dir>/run-state.json" "<G+1>" <<'EOF'
+import json, sys, time
+deadline = time.monotonic() + 600
+while True:
+    try:
+        with open(sys.argv[1]) as f:
+            if (json.load(f).get("takeover") or {}).get("generation") == int(sys.argv[2]):
+                sys.exit(0)
+    except (OSError, ValueError):
+        pass
+    if time.monotonic() > deadline:
+        sys.exit(124)
+    time.sleep(5)
+EOF
 ```
 
 - **Exit 0**: `takeover.generation == G+1`, so the takeover is confirmed. Re-read
