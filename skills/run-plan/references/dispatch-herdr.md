@@ -52,13 +52,14 @@ the `agent_status` field of the agent object (not `status` or `state`).
 
 ## 1. Run binding
 
-There is no server-side run. At run start, mint the run id `rp<run4>`, where `<run4>` is 4
-random lowercase hex digits (`python3 -c 'import secrets; print(secrets.token_hex(2))'`),
-and write it to `run-state.json` (atomically) with the owner:
+There is no server-side run. At run start, mint the run id `rp<run8>`, where `<run8>` is 8
+random lowercase hex digits (`python3 -c 'import secrets; print(secrets.token_hex(4))'`),
+and write it to `run-state.json` (atomically) with the owner. Agent names are unique per
+herdr server, not per run, so the id must make a clash with another live run negligible:
 
 ```json
 "backend": "herdr",
-"run_id": "rp3f9a",
+"run_id": "rp3f9a2c71",
 "owner": {"pane_id": "<$HERDR_PANE_ID>", "generation": 1}
 ```
 
@@ -81,7 +82,7 @@ is:
 
 - `task_id`: always `null`.
 - `dispatch_id`: the agent name of the leg's **current attempt**,
-  `rp<run4>-s<N>-l<g>-a<k>` (phase N, leg g, attempt k from 1). It always matches herdr's
+  `rp<run8>-s<N>-l<g>-a<k>` (phase N, leg g, attempt k from 1). It always matches herdr's
   name rule `[a-z][a-z0-9_-]{0,31}`.
 - `tab_id` and `pane_id`: the attempt's tab and its root pane (§3).
 - `outcome`, as in SKILL.md Step 2.
@@ -150,8 +151,11 @@ herdr agent start <name> --kind <run-config.agent> --pane <pane_id> --timeout 12
   what it shows (one `herdr agent read <name> --source visible`), then wait for them to
   clear it: `herdr agent wait <name> --until idle --until done --timeout 600000`, re-issued
   on `timeout`. Then go on to §4.
-- **`agent_name_taken`**: a live agent already has this name, which means an earlier
-  start of this attempt went through. Treat it as the lost-receipt case below.
+- **`agent_name_taken`**: a live agent already has this name. Check `herdr agent get
+  <name>`: if its `tab_id` is this attempt's recorded tab, an earlier start of this attempt
+  went through, so treat it as the lost-receipt case below. Any other tab means another
+  run holds the name: never prompt or close that agent. Close this attempt's tab and mark
+  the phase `[blocked]` with the clash.
 - **A timeout or any other error** (`agent_pane_busy`, `unsupported_agent_kind`,
   `invalid_agent_argument`, …): read once (`herdr agent read <name> --source visible`;
   it errors if no agent came up), close the tab (`herdr tab close <tab_id>`), and count a
@@ -256,9 +260,11 @@ done):
 - **The completion report** is the result file plus a settled state. It is valid only if
   its name carries the **current** attempt's suffix (`-l<g>-a<k>`). A result file from an
   earlier attempt is logged and ignored.
-- Read its **first line**: `PHASE-STATUS: complete` or
-  `PHASE-STATUS: continuation-required`. The three-sentence summary follows (§8b). A file
-  with no status line counts as complete.
+- Read its **first line**: `PHASE-STATUS: complete`,
+  `PHASE-STATUS: continuation-required` or `PHASE-STATUS: failed`. The three-sentence
+  summary follows (§8b). `failed` is the completion report with a failed outcome (SKILL.md
+  failure machine): release, then retry on the same leg (below). A file with no status
+  line counts as complete.
 - **Release** = `herdr tab close <tab_id>`, on **every** settled attempt (complete,
   continuation, failed, blocked) before moving on, and only for tabs recorded in
   `run-state.json`. Closing the tab ends the agent, and herdr clears its name, so
@@ -267,7 +273,7 @@ done):
   user asks.
 - **A failed attempt retries on the same leg**: release the attempt's tab, summarize the
   failure into a regenerated `phase-N.txt` (with the next attempt's paths, §2), then start
-  attempt `k+1` with a new tab and a new name, `rp<run4>-s<N>-l<g>-a<k+1>`, and run
+  attempt `k+1` with a new tab and a new name, `rp<run8>-s<N>-l<g>-a<k+1>`, and run
   §3-§5 again. herdr has no failed-start breaker, so run-plan's `max_consecutive_failures`
   is the only bound, and it counts every failed attempt, starts included.
 - **A continuation is a new leg, never a retry**: release, then start leg g+1 at attempt
@@ -306,6 +312,12 @@ worker to number) into both paragraphs.
 > context-budget `references/worker.md`), write the same file with the first line
 > `PHASE-STATUS: continuation-required`, name the continuation note by path in its body,
 > and end your turn. Nothing failed: the session did its job by stopping cleanly.
+>
+> If you cannot finish the phase for any other reason (a step that won't pass, a broken
+> environment, work you had to abandon), write the same file with the first line
+> `PHASE-STATUS: failed`, then say what you tried, what failed (with the error), and the
+> state you left the checkout in. End your turn. The coordinator retries the phase in a
+> fresh session, so never report `complete` for unfinished work.
 >
 > If you are blocked on a decision only the coordinator can make, write your question to
 > `<ask path>` (atomically, with `<q>` = 1 for your first question, 2 for the next, and so
@@ -357,7 +369,7 @@ Record `.result.tab.tab_id` and `.result.root_pane.pane_id` at once, in `run-log
 in the `handoffs[]` entry as `successor_tab` and `successor_pane`. Never record them as a
 leg's `tab_id`: §7's end-of-run sweep closes leg tabs, and a later generation would close
 the tab its own coordinator runs in. The successor's agent name is `<run_id>-coord-g<G+1>`
-(for example `rp3f9a-coord-g2`), which matches herdr's name rule.
+(for example `rp3f9a2c71-coord-g2`), which matches herdr's name rule.
 
 Then start the agent from `ctxcheck launch-command --json`. Its `runtime` picks the path:
 

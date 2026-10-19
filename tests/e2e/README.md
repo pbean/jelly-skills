@@ -217,7 +217,7 @@ Watch for the checks at the end of this section.
 The order of events is the same as in section 4. What differs is how herdr shows them:
 
 - **The run binds to your pane.** `run-state.json` shows `backend: herdr`, a `run_id`
-  like `rp3f9a`, and `owner.pane_id` equal to your pane's `$HERDR_PANE_ID`.
+  like `rp3f9a2c71`, and `owner.pane_id` equal to your pane's `$HERDR_PANE_ID`.
 - **Each leg attempt is a tab of its own.** A tab labelled like
   "S1 leg 1: <phase title>" opens without taking focus and runs the worker, named
   `<run_id>-s1-l1-a1`. It closes when the attempt settles. Phase 1 opens two (legs 1 and
