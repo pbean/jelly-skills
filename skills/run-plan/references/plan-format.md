@@ -54,7 +54,9 @@ cwd: /abs/path/to/repo
   keeps today's default, `orca`. The runner writes the resolved value into the run-config
   as soon as it resolves it (run-plan Step 2, right after normalization) and records it in
   `run-state.json`. On resume and in successors, `run-state.json`'s `backend` wins over
-  the plan and over detection, so a run never changes backend mid-flight.
+  the plan and over detection, so a run never changes backend mid-flight. A
+  `run-state.json` without a `backend` key comes from an Orca-only runner (1.3 and
+  older) and means `orca`.
 
 ## 2. Phase unit and status tags
 

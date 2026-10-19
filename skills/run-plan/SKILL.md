@@ -130,7 +130,9 @@ never invent phases from prose.
 
 Parse (or synthesize and confirm — once) the run-config block per plan-format.md §1,
 including `backend`. When `run-state.json` already exists, its recorded `backend` wins:
-never detect or ask again mid-run. Otherwise, when the key is absent, detect it per §1 and
+never detect or ask again mid-run. A `run-state.json` with no `backend` key predates
+backends (run-plan 1.3 and older were Orca-only): treat it as `orca` and record that in
+the state and the run-config before going on. Otherwise, when the key is absent, detect it per §1 and
 write the resolved value into the plan's run-config block now (Step 1 has already run, so
 normalization did not write it). Then load
 `references/dispatch-<backend>.md` (Contracts to load first). Create the runs directory

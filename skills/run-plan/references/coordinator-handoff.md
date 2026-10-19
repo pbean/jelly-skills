@@ -191,10 +191,22 @@ wins:
 
 ```bash
 python3 - "<runs dir>/run-state.json" <<'EOF'
-import fcntl, json, os, sys, tempfile
+import json, os, sys, tempfile
+try:
+    import fcntl
+    def lock_ex(f): fcntl.flock(f, fcntl.LOCK_EX)
+except ImportError:        # native Windows: no fcntl
+    import msvcrt
+    def lock_ex(f):
+        f.seek(0)
+        while True:        # LK_LOCK gives up after ~10s; keep waiting
+            try:
+                return msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            except OSError:
+                pass
 path = sys.argv[1]
 with open(os.path.join(os.path.dirname(path), "run-state.lock"), "a") as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX)
+    lock_ex(lock)
     with open(path) as f:
         state = json.load(f)
     if not CHECK:          # the check, below
