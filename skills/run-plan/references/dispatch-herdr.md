@@ -181,10 +181,15 @@ herdr agent start <name> --kind <run-config.agent> --pane <pane_id> --timeout 12
   (below), and count a failed attempt once confirmed dead.
 
 **Cleaning up a failed start** follows release's rule (§7): a start can hang for up to
-two minutes, and the user may split the attempt's tab or move a pane into it meanwhile.
-`herdr tab get <tab_id>`: at `pane_count` 1, close the tab (`herdr tab close <tab_id>`);
-otherwise close only the attempt's root pane (`herdr pane close <pane_id>`) and leave the
-rest of the tab to the user.
+two minutes, and the user may split the attempt's tab, move a pane into it, or move a
+worker that did launch out of it meanwhile. So `pane_count` alone doesn't say whose the
+last pane is. `herdr pane get <pane_id>` and `herdr tab get <tab_id>`: close the tab
+(`herdr tab close <tab_id>`) only when the root pane answers with `.result.pane.tab_id`
+equal to `<tab_id>` and the tab's `pane_count` is 1. If the root pane answers in that tab
+with others beside it, close only it (`herdr pane close <pane_id>`). If it answers in
+another tab, or errors (a cross-workspace move changes its id), the pane was moved:
+refresh (§2), close the pane `herdr agent get <name>` names if it answers, and leave the
+creation tab to the user unless `tab get` finds it at `pane_count` 0.
 
 **Confirmed dead**, before any failed start is retried: `herdr agent get <name>` answers
 `agent_not_found`, and whatever cleanup closed is gone: `herdr tab get <tab_id>` errors
@@ -226,12 +231,18 @@ activity and then a state in `--until`:
   delivery.
 - **`agent_prompt_stalled`** (no `working` or `blocked` within 5 s of submission) **or
   `timeout`**: neither proves the prompt was lost. A fast turn can also start and finish
-  between observations. Check for the result file first (§6); if it is there, go to §7.
-  Otherwise do one `herdr agent read <name> --source recent-unwrapped --lines 40`:
+  between observations, and a delivery can surface tens of seconds after the error with
+  the composer still empty at the error (herdr issue #2690). Check for the result file
+  first (§6); if it is there, go to §7. Otherwise give a late delivery time to show
+  before judging it:
+  `herdr agent wait <name> --until working --until blocked --timeout 60000`.
+  `working` → §6; `blocked` → as the `blocked` return above. On `timeout`, check for the
+  result file again, then do one
+  `herdr agent read <name> --source recent-unwrapped --lines 40`:
   - Work is visible → the prompt landed; go to §6.
   - The line sits unsubmitted in the composer → `herdr agent send-keys <name> enter` once,
     then §6.
-  - The composer is empty → the prompt was swallowed. Re-deliver once, with the same
+  - The composer is still empty → the prompt was swallowed. Re-deliver once, with the same
     `agent prompt` command.
 - **Never a third delivery.** Still no proof after the one re-delivery (or the one Enter)
   → mark the phase `[blocked]` with what was observed (the error code and the read's last
@@ -496,8 +507,12 @@ herdr agent prompt <successor> "<one line>" --wait --until working --until block
   That is handoff step 8's dialog branch: tell the user, and don't re-send.
 - **`agent_blocked`**: the successor was already `blocked`, and herdr sent nothing. That is
   a pre-send dialog (above), not a send.
-- **`agent_prompt_stalled` or `timeout`**: neither proves the line was lost. Do the one
-  diagnostic read now instead of waiting ten minutes first, and decide from it:
+- **`agent_prompt_stalled` or `timeout`**: neither proves the line was lost, and a late
+  delivery can still surface with the composer empty at the error (as §5). Give it the
+  same grace first: `herdr agent wait <successor> --until working --until blocked --timeout 60000`.
+  `working` → the takeover wait; `blocked` → handoff step 8's dialog branch, line sent.
+  On `timeout`, do the one diagnostic read now instead of waiting ten minutes first, and
+  decide from it:
   - Work is visible → the line landed. Go to the takeover wait; if that runs out, the
     succession failed (handoff step 8's last branch, with no second read).
   - The line sits unsubmitted in the composer → `herdr agent send-keys <successor> enter`
