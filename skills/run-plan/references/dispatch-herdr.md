@@ -287,13 +287,15 @@ done):
   summary follows (§8b). `failed` is the completion report with a failed outcome (SKILL.md
   failure machine): release, then retry on the same leg (below). A file with no status
   line counts as complete.
-- **Release** = refresh (§2), then `herdr tab close <tab_id>`, on **every** settled
-  attempt (complete, continuation, failed, blocked) before moving on, and only for tabs
-  recorded in `run-state.json`. Closing the tab ends the agent, and herdr clears its name.
-  If the leg has an `origin_tab_id` (a refresh has ever found the worker outside its own
-  tab, even if it has since been moved back), the tab it is in now may hold the user's
-  panes: close only the worker's pane,
-  `herdr pane close <pane_id>`. Close `origin_tab_id` only if `herdr tab get` still finds
+- **Release** = refresh (§2), then `herdr tab get <tab_id>`, then close, on **every**
+  settled attempt (complete, continuation, failed, blocked) before moving on, and only for
+  tabs recorded in `run-state.json`. Close the whole tab, `herdr tab close <tab_id>`, only
+  when the leg has no `origin_tab_id` and the tab's `pane_count` is 1: then the worker's
+  pane is the only one in it. Closing the tab ends the agent, and herdr clears its name.
+  Otherwise the tab may hold the user's panes (the user split it or moved a pane in, or
+  the worker was moved: an `origin_tab_id` means a refresh has ever found the worker
+  outside its own tab, even if it has since been moved back), so close only the worker's
+  pane, `herdr pane close <pane_id>`. Close `origin_tab_id` only if `herdr tab get` still finds
   it with `pane_count` 0: the run put only the worker's root pane there, so any pane left
   in it is the user's, and a CLI close is immediate. Otherwise leave it and log it. Either
   way, confirm with `herdr agent get <name>`, which must answer
@@ -314,9 +316,10 @@ done):
 - **Before ending the run** (Completed or Blocked; SKILL.md Exit states), sweep: for every
   leg in `run-state.json`, release its attempt as above if `herdr agent get <dispatch_id>`
   still answers it. Then close the tab the run created for it if `herdr tab get` still
-  finds it: `tab_id` when the leg has no `origin_tab_id`, else `origin_tab_id`, and that
-  only at `pane_count` 0 (as in release). Never close a `tab_id` the worker was moved into.
-  The run isn't over until none is left. **Never sweep on a pause on a question**: the
+  finds it with `pane_count` 0 (as in release): `tab_id` when the leg has no
+  `origin_tab_id`, else `origin_tab_id`. A tab with any pane left holds the user's panes;
+  leave it and log it. Never close a `tab_id` the worker was moved into.
+  The run isn't over until no worker answers. **Never sweep on a pause on a question**: the
   asking worker's tab stays open, since the reply (§6) is delivered to that live agent.
   Leave any tab the user asked to keep open too.
 
