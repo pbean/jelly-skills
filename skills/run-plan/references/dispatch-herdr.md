@@ -36,7 +36,10 @@ the `agent_status` field of the agent object (not `status` or `state`).
   probe a mutating verb by leaving out its arguments: `tab create` and `workspace create`
   run with defaults.
 - `herdr status`: the server must report `status: running` and `endpoint_compatible: yes`.
-  Record the client and server `version` lines in `run-log.md`.
+  Record the client and server `version` lines in `run-log.md`. Both must be 0.9.5 or
+  later, compared as numeric `major.minor.patch` (ignore any `-` suffix). If either is
+  older, refuse the run before you touch the plan or `run-state.json`, and name
+  `herdr update`: the commands and JSON shapes below are 0.9.5's.
 - Print the group listings once: `herdr agent`, `herdr tab` and `herdr pane`, each with
   **no verb**. They are the usage lines for every command below and win over this file.
   `herdr <group> <verb> --help` does not work; it prints the top-level help.
@@ -99,6 +102,15 @@ The phase file for an attempt carries that attempt's paths (§8b): the **result 
 Rediscovery after lost context: `herdr agent list` (`.result.agents[]`, each with `name`,
 `tab_id`, `pane_id`, `agent_status`) and `herdr tab list`, matched by agent name and tab
 label against the legs in `run-state.json`.
+
+**Refresh before you act on a location.** The agent name is the stable handle; `tab_id`
+and `pane_id` are only where the worker was. A user can `pane move` a live worker to
+another tab or workspace: a cross-workspace move changes its pane id, and its old tab may
+close or sit empty. So before every release (§7) and after any `agent_not_running` (§6),
+run `herdr agent get <dispatch_id>`. If it answers the agent, write its `.result.agent`
+`tab_id` and `pane_id` into the leg record (keep the creation-time tab as
+`origin_tab_id` the first time they differ) and use those. If it answers
+`agent_not_found`, the recorded ids stand.
 
 ## 3. Starting a worker
 
@@ -245,12 +257,15 @@ done):
   - A second report-less stop in the same attempt is a failed attempt (§7).
 - **`unknown`** is never proof of anything. Keep waiting, and include `--until unknown`
   only when you want to look at it.
-- **After three consecutive timeouts**, run `herdr agent get <name>`. Only
-  `agent_not_found` or `agent_not_running` **and** a pane back at its shell prove the
-  worker is dead: check with `herdr pane process-info --pane <pane_id>`, whose
+- **`agent_not_running` from a wait** is not death: a wait in progress ends that way when
+  the worker's pane is moved. Refresh (§2) and, if the agent answers, re-issue the wait.
+- **After three consecutive timeouts**, refresh (§2). Only `agent_not_found` or
+  `agent_not_running` **and** a pane back at its shell prove the worker is dead: check
+  with `herdr pane process-info --pane <pane_id>`, whose
   `.result.process_info.foreground_processes` then holds only the shell. A `herdr tab get
-  <tab_id>` that errors (someone closed the tab) is proof too. Proven dead → a failed
-  attempt (§7). Reset the timeout count after looking.
+  <tab_id>` that errors is proof only when `agent get` also answers `agent_not_found`; a
+  moved worker leaves its old tab behind. Proven dead → a failed attempt (§7). Reset the
+  timeout count after looking.
 - **Absence authorizes nothing.** No other pane reads (`herdr pane read` buys repaint
   noise), no wall-clock kill. If `agent read --lines` answers `agent_not_idle`, read
   `--source visible` instead.
@@ -265,12 +280,16 @@ done):
   summary follows (§8b). `failed` is the completion report with a failed outcome (SKILL.md
   failure machine): release, then retry on the same leg (below). A file with no status
   line counts as complete.
-- **Release** = `herdr tab close <tab_id>`, on **every** settled attempt (complete,
-  continuation, failed, blocked) before moving on, and only for tabs recorded in
-  `run-state.json`. Closing the tab ends the agent, and herdr clears its name, so
-  `herdr agent get <name>` then answers `agent_not_found`. If `tab close` answers
-  `confirmation_required`, tell the user rather than force it. Keep a tab open only if the
-  user asks.
+- **Release** = refresh (§2), then `herdr tab close <tab_id>`, on **every** settled
+  attempt (complete, continuation, failed, blocked) before moving on, and only for tabs
+  recorded in `run-state.json`. Closing the tab ends the agent, and herdr clears its name.
+  If the refresh found the worker moved out of its own tab (`tab_id` ≠ `origin_tab_id`),
+  the tab it is in now may hold the user's panes: close only the worker's pane,
+  `herdr pane close <pane_id>`, then close `origin_tab_id` if `herdr tab get` still finds
+  it. Either way, confirm with `herdr agent get <name>`, which must answer
+  `agent_not_found` before you advance; anything else → tell the user and stop. If
+  `tab close` answers `confirmation_required`, tell the user rather than force it. Keep a
+  tab open only if the user asks.
 - **A failed attempt retries on the same leg**: release the attempt's tab, summarize the
   failure into a regenerated `phase-N.txt` (with the next attempt's paths, §2), then start
   attempt `k+1` with a new tab and a new name, `rp<run8>-s<N>-l<g>-a<k+1>`, and run
@@ -283,7 +302,9 @@ done):
   agent races its own output. Queue a follow-up for the next settled state, or leave it
   out.
 - **Before ending the run** (Completed or Blocked; SKILL.md Exit states), sweep: for every
-  leg's `tab_id` in `run-state.json`, if `herdr tab get <tab_id>` still finds it, close it.
+  leg in `run-state.json`, release its attempt as above if `herdr agent get <dispatch_id>`
+  still answers it, then close its `tab_id` (and `origin_tab_id`) if `herdr tab get`
+  still finds it.
   The run isn't over until none is left. **Never sweep on a pause on a question**: the
   asking worker's tab stays open, since the reply (§6) is delivered to that live agent.
   Leave any tab the user asked to keep open too.
