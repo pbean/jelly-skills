@@ -119,7 +119,7 @@ Each attempt gets a new tab in `run-config.cwd`, not focused, in your own pane's
 
 ```
 herdr pane current --current
-herdr tab create --workspace <workspace_id> --cwd <run-config.cwd> --label "S<N> leg <g>: <phase title>" --no-focus
+herdr tab create --workspace <workspace_id> --cwd "<run-config.cwd>" --label "S<N> leg <g>: <phase title>" --no-focus
 ```
 
 `<workspace_id>` is `.result.pane.workspace_id` from the first call. Without `--workspace`
@@ -368,7 +368,7 @@ worker to number) into both paragraphs.
 
 > When finished, write `<result path>` **atomically**: write a temp file in the same
 > directory, then rename it onto that name with
-> `python3 -c "import os, sys; os.replace(sys.argv[1], sys.argv[2])" <temp> <result path>`
+> `python3 -c "import os, sys; os.replace(sys.argv[1], sys.argv[2])" "<temp>" "<result path>"`
 > (`py -3` or `python` where `python3` isn't on PATH), which works from any shell. Make `PHASE-STATUS: complete` its **first line**,
 > then a three-sentence summary: what changed (with the commit SHA), what you found (with
 > test results), and what remains or what the next session must know. Then end your turn.
@@ -427,7 +427,7 @@ resolved right before as in §3, and `run-config.cwd`, not focused:
 
 ```
 herdr pane current --current
-herdr tab create --workspace <workspace_id> --cwd <run-config.cwd> --label "run-plan coordinator gen <G+1>" --no-focus
+herdr tab create --workspace <workspace_id> --cwd "<run-config.cwd>" --label "run-plan coordinator gen <G+1>" --no-focus
 ```
 
 Record `.result.tab.tab_id` and `.result.root_pane.pane_id` at once, in `run-log.md` and
