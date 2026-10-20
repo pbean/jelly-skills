@@ -190,10 +190,20 @@ predecessor's give-up (step 8). A slow successor can pass its first look at
 So each of the two re-reads and checks the state under one exclusive lock,
 `<runs dir>/run-state.lock`, and writes only if its check holds. Exactly one of them
 wins. Arguments after the state path are a backend command to run under the lock once
-the check holds, before the write; only the successor passes one (Taking over step 2):
+the check holds, before the write; only the successor passes one (Taking over step 2).
 
-```bash
-python3 - "<runs dir>/run-state.json" [<rebind command> ...] <<'EOF'
+Save the script below, with the check and the changes filled in, to
+`<runs dir>/guarded-write-g<your generation>.py` with your file-writing tool, then run it:
+
+```
+python3 "<runs dir>/guarded-write-g<your generation>.py" "<runs dir>/run-state.json" [<rebind command> ...]
+```
+
+Use a file, never a shell heredoc: PowerShell and cmd reject `<<`, and a script file runs
+the same from every shell. The generation in the name keeps the two sides' scripts apart.
+Where `python3` isn't on PATH (some native Windows installs), use `py -3` or `python`.
+
+```python
 import json, os, subprocess, sys, tempfile
 try:
     import fcntl
@@ -221,7 +231,6 @@ with open(os.path.join(os.path.dirname(path), "run-state.lock"), "a") as lock:
     with os.fdopen(fd, "w") as f:
         json.dump(state, f, indent=2)
     os.replace(tmp, path)
-EOF
 ```
 
 - **Successor**: the check is `state.get("takeover_pending") == <your generation>`; the

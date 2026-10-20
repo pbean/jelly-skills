@@ -56,7 +56,7 @@ the `agent_status` field of the agent object (not `status` or `state`).
 ## 1. Run binding
 
 There is no server-side run. At run start, mint the run id `rp<run8>`, where `<run8>` is 8
-random lowercase hex digits (`python3 -c 'import secrets; print(secrets.token_hex(4))'`),
+random lowercase hex digits (`python3 -c "import secrets; print(secrets.token_hex(4))"`),
 and write it to `run-state.json` (atomically) with the owner. Agent names are unique per
 herdr server, not per run, so the id must make a clash with another live run negligible:
 
@@ -218,7 +218,9 @@ and the delivered line only points at it.
 ## 5. First contact — prove the prompt landed
 
 The `agent prompt` call above is the proof. With `--wait`, it returns once herdr has seen
-activity and then a state in `--until`:
+activity and then a state in `--until`. This section also handles the return of §6's
+reply and nudge prompts: there, "deliver" and "re-deliver" mean sending **that same
+prompt line** again, never §4's phase-file line, which would restart the phase.
 
 - **Returns `agent_status: "working"`** (`type: "agent_prompted"`, `.result.agent`): the
   prompt landed and the turn started. Go to §6. No heartbeat is needed.
@@ -227,8 +229,8 @@ activity and then a state in `--until`:
   them: `herdr agent wait <name> --until working --until idle --until done --timeout 600000`,
   re-issued on `timeout`. **Never re-deliver over a dialog.** Then go to §6.
 - **`agent_blocked`**: the agent was already `blocked` when you prompted, and herdr sent
-  nothing. Handle the dialog as above, then deliver (§4). This is still the first
-  delivery.
+  nothing. Handle the dialog as above, then send the same prompt again (§4's line on
+  first contact, the reply or nudge line from §6). This is still the first delivery.
 - **`agent_prompt_stalled`** (no `working` or `blocked` within 5 s of submission) **or
   `timeout`**: neither proves the prompt was lost. A fast turn can also start and finish
   between observations, and a delivery can surface tens of seconds after the error with
@@ -267,7 +269,7 @@ done):
   `<runs dir>/phase-N-l<g>-a<k>.reply-<q>.md` (same `<q>` as the ask), then, only while the
   agent is `idle` or `done`, send:
   `herdr agent prompt <name> "Read <abs reply path>; it answers your question. Continue the phase." --wait --until working --until blocked --timeout 60000`,
-  and handle its return as §5 does.
+  and handle its return as §5 does, retrying this reply line, not the phase-file line.
 - **Else `blocked`** → one `herdr agent read <name> --source visible`, tell the user what
   the dialog is, and keep waiting with `--until idle --until done`. A worker parked on a
   dialog is healthy, not failed; it waits until a person answers.
@@ -466,17 +468,21 @@ herdr pane run <successor_pane> "<shell_command>"
 
 `<shell_command>` is `launch-command`'s `shell_command`, verbatim, as one argument. Then
 poll for detection, bounded at 180 s in one shell call, and name it. The deadline is in
-Python, not GNU `timeout`, which stock macOS lacks:
+Python, not GNU `timeout`, which stock macOS lacks. Save the script to
+`<runs dir>/poll-detect.py` with your file-writing tool, not a heredoc (see
+`coordinator-handoff.md`, "Guarded writes"), then run it and name the agent:
 
-```
-python3 - <successor_pane> <<'EOF'
+```python
 import subprocess, sys, time
 deadline = time.monotonic() + 180
 while subprocess.run(["herdr", "agent", "get", sys.argv[1]], capture_output=True).returncode:
     if time.monotonic() > deadline:
         sys.exit(124)
     time.sleep(3)
-EOF
+```
+
+```
+python3 "<runs dir>/poll-detect.py" <successor_pane>
 herdr agent rename <successor_pane> <successor>
 ```
 
@@ -525,10 +531,10 @@ write: in the same guarded write (`coordinator-handoff.md`, "Guarded writes") as
 whose first line names generation `takeover_pending` rewrites `owner` without §1's resume
 confirmation: the predecessor's handoff is that confirmation. There is no fenced signal to
 wait for, so poll the file, bounded at 600 s, in one shell call (a Python deadline, as
-above):
+above). Save the script to `<runs dir>/poll-takeover.py` the same way, then run
+`python3 "<runs dir>/poll-takeover.py" "<runs dir>/run-state.json" "<G+1>"`:
 
-```
-python3 - "<runs dir>/run-state.json" "<G+1>" <<'EOF'
+```python
 import json, sys, time
 deadline = time.monotonic() + 600
 while True:
@@ -541,7 +547,6 @@ while True:
     if time.monotonic() > deadline:
         sys.exit(124)
     time.sleep(5)
-EOF
 ```
 
 - **Exit 0**: `takeover.generation == G+1`, so the takeover is confirmed. Re-read
