@@ -187,8 +187,11 @@ last pane is. `herdr pane get <pane_id>` and `herdr tab get <tab_id>`: close the
 (`herdr tab close <tab_id>`) only when the root pane answers with `.result.pane.tab_id`
 equal to `<tab_id>` and the tab's `pane_count` is 1. If the root pane answers in that tab
 with others beside it, close only it (`herdr pane close <pane_id>`). If it answers in
-another tab, or errors (a cross-workspace move changes its id), the pane was moved:
-refresh (§2), close the pane `herdr agent get <name>` names if it answers, and leave the
+another tab, the pane was moved but is still this attempt's root pane: close it
+(`herdr pane close <pane_id>`) even when `herdr agent get <name>` answers
+`agent_not_found`, since a start that never registered the name may still have launched
+the agent there. If it errors (a cross-workspace move changes its id), refresh (§2) and
+close the pane `herdr agent get <name>` names if it answers. Either way, leave the
 creation tab to the user unless `tab get` finds it at `pane_count` 0.
 
 **Confirmed dead**, before any failed start is retried: `herdr agent get <name>` answers
