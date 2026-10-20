@@ -15,7 +15,8 @@ remains keeps the launch posture (permission mode, sandbox, model).
 
     {runtime, argv, shell_command, cwd, pid, stripped}
 
-Exit 3 when no ancestor is an agent CLI.
+Exit 3 when no ancestor is an agent CLI, and on native Windows, which has
+neither /proc nor `ps` (WSL has /proc).
 """
 
 from __future__ import annotations
@@ -419,7 +420,17 @@ def find(start: int, procs: Procs) -> dict | None:
     }
 
 
+def _not_found(as_json: bool, msg: str) -> int:
+    if as_json:
+        print(json.dumps({"runtime": None, "found": False, "message": msg}, indent=2))
+    print(f"ctxcheck: {msg}", file=sys.stderr)
+    return EXIT_UNMEASURABLE
+
+
 def main(as_json: bool, procs: Procs | None = None, start: int | None = None) -> int:
+    if procs is None and sys.platform == "win32":
+        return _not_found(as_json, "can't read process ancestry on native Windows "
+                                   "(no /proc or ps); run under WSL to launch a successor")
     procs = procs or default_procs()
     start = os.getppid() if start is None else start
     try:
@@ -428,12 +439,8 @@ def main(as_json: bool, procs: Procs | None = None, start: int | None = None) ->
         print(f"ctxcheck launch-command: {e}", file=sys.stderr)
         return EXIT_ERROR
     if rec is None:
-        msg = ("no agent CLI among this process's ancestors (looked for "
-               + ", ".join(n for s in SPECS for n in s.names) + ")")
-        if as_json:
-            print(json.dumps({"runtime": None, "found": False, "message": msg}, indent=2))
-        print(f"ctxcheck: {msg}", file=sys.stderr)
-        return EXIT_UNMEASURABLE
+        return _not_found(as_json, "no agent CLI among this process's ancestors (looked for "
+                          + ", ".join(n for s in SPECS for n in s.names) + ")")
     if as_json:
         print(json.dumps(rec, indent=2))
     else:

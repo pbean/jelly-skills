@@ -50,6 +50,13 @@ group listings and docs, but not yet live-validated: the manual smoke test in
 - `dispatch-orca.md`'s opening no longer claims to be the only backend file.
   Orca behavior is unchanged.
 
+#### Fixed
+
+- The successor's `shell_command` reaches `herdr pane run` and Orca's
+  `terminal create --command` through `with-shell-command.py` (handoff step 6)
+  as one argv element. Pasted inside `"..."`, the predecessor's shell expanded
+  `$(...)` or backticks that `shlex.join` had single-quoted.
+
 ### run-plan 1.3.0
 
 Checked against Orca 1.4.229, whose `orca-cli` and `orchestration` skills are now
@@ -101,6 +108,8 @@ stubs that load a version-matched guide from the binary.
 
 - `runtimes.md` and `worker.md`: Copilot CLI can't be a phase worker under
   Orca, but it can under run-plan's herdr backend, which has a `copilot` kind.
+- `ctxcheck launch-command` exits 3 on native Windows with a message saying so,
+  instead of reporting no agent ancestor after `ps` fails. WSL is unaffected.
 
 ### session-plan 1.1.1
 

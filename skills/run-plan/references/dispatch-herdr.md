@@ -473,10 +473,11 @@ Otherwise (no kind, a path-qualified `argv[0]`, or an interpreter), type your ow
 into the pane and detect the agent:
 
 ```
-herdr pane run <successor_pane> "<shell_command>"
+python3 "<runs dir>/with-shell-command.py" herdr pane run <successor_pane> @SHELL_COMMAND@
 ```
 
-`<shell_command>` is `launch-command`'s `shell_command`, verbatim, as one argument. Then
+The script (handoff step 6) passes `launch-command`'s `shell_command` to `pane run`
+verbatim, as one argument, so your own shell never parses it. Then
 poll for detection, bounded at 180 s in one shell call, and name it. The deadline is in
 Python, not GNU `timeout`, which stock macOS lacks. Save the script to
 `<runs dir>/poll-detect.py` with your file-writing tool, not a heredoc (see

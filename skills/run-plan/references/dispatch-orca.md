@@ -352,10 +352,11 @@ takeover wait below block instead of returning a replay at once.
 the Orca worktree enclosing the shell's cwd:
 
 ```
-<orca> terminal create --worktree active --title "run-plan coordinator gen <G+1>" --command "<shell_command>" --json
+python3 "<runs dir>/with-shell-command.py" <orca> terminal create --worktree active --title "run-plan coordinator gen <G+1>" --command @SHELL_COMMAND@ --json
 ```
 
-- `<shell_command>` is `ctxcheck launch-command --json`'s `shell_command`, verbatim. Orca
+- The script (handoff step 6) passes `ctxcheck launch-command --json`'s `shell_command` as
+  `--command`'s value, verbatim and as one argument, so your own shell never parses it. Orca
   types it into a login shell, so the agent's launcher defaults don't apply. That is why
   the command is your own detected argv and never a bare agent name or a hand-built one.
 - `terminal create --help` points agent starts at `<orca> agent launch`. Not here:

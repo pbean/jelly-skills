@@ -51,7 +51,7 @@ Before you write anything, run the backend §9 probe for "am I inside a backend 
 then `ctxcheck launch-command --json`. Both are read-only. `launch-command` walks your own
 process ancestry, finds your agent CLI, and prints the command line that starts a fresh
 session of it (resume arguments and the initial prompt stripped). It exits 3 when no agent
-ancestor is found.
+ancestor is found, and always on native Windows, which it can't walk (WSL works).
 
 If the probe fails, or `launch-command` exits non-zero, you can't launch: still do steps
 2-5, then take the **fallback** in step 9.
@@ -128,6 +128,34 @@ Use the run-plan skill on <abs plan path>. You are coordinator generation G+1 ta
 prompt. It keeps your launch posture (permissions, sandbox, model) intact. A command
 built from the agent name alone gets different defaults, and the successor may stop for
 confirmation on every action.
+
+**Pass `shell_command` as one argument, never pasted into your own command line.** It is
+`shlex.join` output: a retained argument such as `'x=$(cmd)'` is safe only while
+single-quoted, and wrapping it in `"..."` lets your shell expand it (or a `"` inside end
+it) before the backend sees it. So the backend's §9 hands it over through this script,
+which re-runs `launch-command` (with the `ctxcheck_path` in the `run-state.json` beside it)
+and substitutes `shell_command`, as one argv element, for the literal `@SHELL_COMMAND@`.
+Save it to `<runs dir>/with-shell-command.py` with your file-writing tool (see "Guarded
+writes"):
+
+```python
+import json, os, subprocess, sys
+here, cmd = os.path.dirname(os.path.abspath(__file__)), sys.argv[1:]
+with open(os.path.join(here, "run-state.json")) as f:
+    ctxcheck = json.load(f)["ctxcheck_path"]
+got = subprocess.run([sys.executable, ctxcheck, "launch-command", "--json"],
+                     capture_output=True, text=True)
+if got.returncode:
+    sys.exit(got.returncode)
+line = json.loads(got.stdout)["shell_command"]
+sys.exit(subprocess.run([line if a == "@SHELL_COMMAND@" else a for a in cmd]).returncode)
+```
+
+```
+python3 "<runs dir>/with-shell-command.py" <backend command, with @SHELL_COMMAND@ as one argument>
+```
+
+The script's exit code is the backend command's, or `launch-command`'s when that fails.
 
 ### 7. Confirm the takeover
 

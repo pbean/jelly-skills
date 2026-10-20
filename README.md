@@ -174,7 +174,8 @@ coordinator with the posture you want the successor to have. For an unattended r
 Claude Code that means something like `claude --dangerously-skip-permissions`. Otherwise
 the successor stops at a permission prompt; the predecessor tells you and doesn't re-send.
 
-Succession needs an Orca terminal or a herdr pane. Under Orca, the successor rebinds the
+Succession needs an Orca terminal or a herdr pane, on Linux, macOS or WSL: `launch-command`
+can't walk a native Windows process tree, so there the handoff is always by hand. Under Orca, the successor rebinds the
 Run, which fences the predecessor. Under herdr, the successor starts in a new tab, and the
 predecessor confirms the takeover from `run-state.json`, where the successor records its
 generation and takes over the run's `owner` (herdr has no run fencing of its own). Outside
