@@ -94,19 +94,31 @@ Every dispatch file defines these terms concretely for its backend:
 Take the plan path from the argument; if none was given, ask. Expand `~`, absolutize, and
 read the whole file. Everything downstream cites this absolute path.
 
-Then fix the **runs directory** — `<runs dir>` everywhere below:
+Then fix the **runs directory** — `<runs dir>` everywhere below. Its parent is:
 
-- `<plan file's directory>/runs/<plan-basename>/` by default (a plan at
-  `~/.claude/plans/foo.md` runs from `~/.claude/plans/runs/foo/`);
-- but if the plan file sits inside a git work tree, `~/.agents/plans/runs/<plan-basename>/`
-  instead — run state never lands inside a repo.
+- `<plan file's directory>/runs/` by default (a plan at `~/.claude/plans/foo.md` runs
+  from `~/.claude/plans/runs/foo/`);
+- but `~/.agents/plans/runs/` if the plan file sits inside a git work tree — run state
+  never lands inside a repo.
 
 Workers paste `<runs dir>` paths into shell commands, inside double quotes, so it must hold
-nothing a shell expands there. Replace each character of `<plan-basename>` outside
-`A-Z a-z 0-9 . _ -` with `-`. If the plan file's directory still leaves any character
-outside those, space, `/`, `\` or a drive's `:` (a `$`, backtick, `"`, `%` or `!`), use
-`~/.agents/plans/runs/<plan-basename>/` instead. The rule is deterministic, so a resume
-finds the same directory.
+nothing a shell expands there. If the plan file's directory holds any character outside
+`A-Z a-z 0-9 . _ -`, space, `/`, `\` or a drive's `:` (a `$`, backtick, `"`, `%` or `!`),
+the parent is `~/.agents/plans/runs/` instead. Under that parent, the directory name is
+the first of these that applies:
+
+1. `<safe>-<hash>`, if it already holds a `run-state.json`. `<safe>` is the basename with
+   each character outside `A-Z a-z 0-9 . _ -` replaced by `-`. `<hash>` is the first 8 hex
+   digits of the SHA-256 of the absolute plan path's UTF-8 bytes.
+2. The raw basename, if it holds a `run-state.json` whose `plan_path` is this plan, or that
+   has no `plan_path` (an older run: record it now). The raw basename must hold none of `$`,
+   backtick, `"`, `%` or `!`.
+3. The raw basename, if it equals `<safe>` and holds no `run-state.json`.
+4. Otherwise `<safe>-<hash>`.
+
+Two plans therefore never share a runs directory, even when their names sanitize alike or
+they sit in different repos. Every lookup is against what is already on disk, so a resume
+finds the same directory, and so does a run started by an older run-plan.
 
 Then resolve **`ctxcheck`**, which measures each worker's context. It ships with the
 sibling `context-budget` skill, at `../context-budget/scripts/ctxcheck` relative to this
@@ -153,8 +165,8 @@ confirmed, and written any missing keys, `backend` among them. Record the resolv
 dispatch file is already loaded (Step 1). Create the runs directory
 `<runs dir>` containing:
 
-- `run-state.json` — `backend`, the backend run id (dispatch §1), `ctxcheck_path`
-  (Step 0), and per phase: the consecutive failure count, the literal heading line
+- `run-state.json` — `plan_path` (the absolute plan path, Step 0), `backend`, the backend
+  run id (dispatch §1), `ctxcheck_path` (Step 0), and per phase: the consecutive failure count, the literal heading line
   captured at normalization (headings are re-found by these literals from here on), and
   `legs`: one entry per worker leg, `{leg, task_id, dispatch_id, outcome}`. These keys are
   the same for every backend; the dispatch file defines their values (the leg record).

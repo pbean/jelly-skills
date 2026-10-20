@@ -84,7 +84,9 @@ agents with no flags of its own, so without one a worker stops at its first perm
 prompt.
 
 Run state goes to `<plan dir>/runs/<plan-name>/`. If the plan file is inside a git repo,
-it goes to `~/.agents/plans/runs/<plan-name>/` instead.
+it goes to `~/.agents/plans/runs/<plan-name>/` instead. When a plan name holds characters
+outside `A-Z a-z 0-9 . _ -`, or another plan already uses that name, the directory gets a
+short hash of the plan path, as in `<plan-name>-1a2b3c4d/`.
 
 ## Context budgets
 
