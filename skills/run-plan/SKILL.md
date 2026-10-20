@@ -101,6 +101,13 @@ Then fix the **runs directory** — `<runs dir>` everywhere below:
 - but if the plan file sits inside a git work tree, `~/.agents/plans/runs/<plan-basename>/`
   instead — run state never lands inside a repo.
 
+Workers paste `<runs dir>` paths into shell commands, inside double quotes, so it must hold
+nothing a shell expands there. Replace each character of `<plan-basename>` outside
+`A-Z a-z 0-9 . _ -` with `-`. If the plan file's directory still leaves any character
+outside those, space, `/`, `\` or a drive's `:` (a `$`, backtick, `"`, `%` or `!`), use
+`~/.agents/plans/runs/<plan-basename>/` instead. The rule is deterministic, so a resume
+finds the same directory.
+
 Then resolve **`ctxcheck`**, which measures each worker's context. It ships with the
 sibling `context-budget` skill, at `../context-budget/scripts/ctxcheck` relative to this
 skill's directory. Absolutize that path once, record it as `ctxcheck_path` in

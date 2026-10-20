@@ -56,6 +56,15 @@ group listings and docs, but not yet live-validated: the manual smoke test in
   `terminal create --command` through `with-shell-command.py` (handoff step 6)
   as one argv element. Pasted inside `"..."`, the predecessor's shell expanded
   `$(...)` or backticks that `shlex.join` had single-quoted.
+- `<runs dir>` is shell-safe by construction (SKILL.md Step 0): the plan
+  basename is reduced to `A-Z a-z 0-9 . _ -`, and a plan directory holding `$`,
+  a backtick, `"`, `%` or `!` falls back to `~/.agents/plans/runs/`. Workers
+  paste runs-dir paths inside `"..."`, where those characters still expand. The
+  herdr result rename now uses a fixed `<result path>.tmp` temp name.
+- herdr: a worker whose result file appears while it is still `working` or
+  `blocked` is waited to `idle` or `done` before release, so the coordinator
+  never closes a pane mid-turn (`agent_prompt_stalled` and `timeout` in §5 no
+  longer jump straight to §7).
 
 ### run-plan 1.3.0
 

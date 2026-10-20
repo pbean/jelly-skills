@@ -238,11 +238,12 @@ prompt line** again, never §4's phase-file line, which would restart the phase.
   `timeout`**: neither proves the prompt was lost. A fast turn can also start and finish
   between observations, and a delivery can surface tens of seconds after the error with
   the composer still empty at the error (herdr issue #2690). Check for the result file
-  first (§6); if it is there, go to §7. Otherwise give a late delivery time to show
-  before judging it:
+  first; if it is there, go to §6, whose wait lets the turn that wrote it finish (a
+  worker can write the file and still be `working`). Otherwise give a late delivery time
+  to show before judging it:
   `herdr agent wait <name> --until working --until blocked --timeout 60000`.
   `working` → §6; `blocked` → as the `blocked` return above. On `timeout`, check for the
-  result file again, then do one
+  result file again (there → §6), then do one
   `herdr agent read <name> --source recent-unwrapped --lines 40`:
   - Work is visible → the prompt landed; go to §6.
   - The line sits unsubmitted in the composer → `herdr agent send-keys <name> enter` once,
@@ -266,7 +267,10 @@ error is a checkpoint, not a failure: quiet is not dead. On a settled state, loo
 **files**, never at the state alone (`idle`, `done` and `unknown` don't prove the work is
 done):
 
-- **The result file** for the current attempt exists → completion report; go to §7.
+- **The result file** for the current attempt exists and the state is `idle` or `done` →
+  completion report; go to §7. Never release a worker that is still `working` or
+  `blocked` because its file has appeared: a `blocked` one gets the dialog handling
+  below first. (A standalone `agent wait` returns at once if the state already matches.)
 - **Else an ask file** for the current attempt exists with no matching reply → an
   escalation (SKILL.md failure machine). To answer it, write the reply atomically to
   `<runs dir>/phase-N-l<g>-a<k>.reply-<q>.md` (same `<q>` as the ask), then, only while the
@@ -366,9 +370,9 @@ worker to number) into both paragraphs.
 
 ### 8b. Completion paragraph (closes every phase file)
 
-> When finished, write `<result path>` **atomically**: write a temp file in the same
-> directory, then rename it onto that name with
-> `python3 -c "import os, sys; os.replace(sys.argv[1], sys.argv[2])" "<temp>" "<result path>"`
+> When finished, write `<result path>` **atomically**: write it first as
+> `<result path>.tmp`, then rename it onto that name with
+> `python3 -c "import os, sys; os.replace(sys.argv[1], sys.argv[2])" "<result path>.tmp" "<result path>"`
 > (`py -3` or `python` where `python3` isn't on PATH), which works from any shell. Make `PHASE-STATUS: complete` its **first line**,
 > then a three-sentence summary: what changed (with the commit SHA), what you found (with
 > test results), and what remains or what the next session must know. Then end your turn.
