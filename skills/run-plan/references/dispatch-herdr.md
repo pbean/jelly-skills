@@ -307,15 +307,20 @@ done):
   summary follows (§8b). `failed` is the completion report with a failed outcome (SKILL.md
   failure machine): release, then retry on the same leg (below). A file with no status
   line counts as complete.
-- **Release** = refresh (§2), then `herdr tab get <tab_id>`, then close, on **every**
-  settled attempt (complete, continuation, failed, blocked) before moving on, and only for
-  tabs recorded in `run-state.json`. Close the whole tab, `herdr tab close <tab_id>`, only
-  when the leg has no `origin_tab_id` and the tab's `pane_count` is 1: then the worker's
-  pane is the only one in it. Closing the tab ends the agent, and herdr clears its name.
-  Otherwise the tab may hold the user's panes (the user split it or moved a pane in, or
-  the worker was moved: an `origin_tab_id` means a refresh has ever found the worker
-  outside its own tab, even if it has since been moved back), so close only the worker's
-  pane, `herdr pane close <pane_id>`. Close `origin_tab_id` only if `herdr tab get` still finds
+- **Release** = refresh (§2), then `herdr pane get <pane_id>` and `herdr tab get
+  <tab_id>`, then close, on **every** settled attempt (complete, continuation, failed,
+  blocked) before moving on, and only for tabs recorded in `run-state.json`. A refresh
+  misses a worker that was moved and then exited, since herdr clears the name on exit, so
+  the pane check settles it: if the pane answers in another tab, record the move as §2
+  does (`origin_tab_id`, then the pane's `tab_id` and `pane_id`); if it errors, the pane
+  is gone, so set `origin_tab_id` to `tab_id` and skip the pane close below. Close the
+  whole tab, `herdr tab close <tab_id>`, only when the leg has no `origin_tab_id`, the
+  pane answers with `.result.pane.tab_id` equal to `<tab_id>`, and the tab's `pane_count`
+  is 1: then the worker's pane is the only one in it. Closing the tab ends the agent, and
+  herdr clears its name. Otherwise the tab may hold the user's panes (the user split it or
+  moved a pane in, or the worker was moved: an `origin_tab_id` means the worker has ever
+  been found outside its own tab, even if it has since been moved back), so close only the
+  worker's pane, `herdr pane close <pane_id>`. Close `origin_tab_id` only if `herdr tab get` still finds
   it with `pane_count` 0: the run put only the worker's root pane there, so any pane left
   in it is the user's, and a CLI close is immediate. Otherwise leave it and log it. Either
   way, confirm with `herdr agent get <name>`, which must answer
