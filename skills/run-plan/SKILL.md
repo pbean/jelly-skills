@@ -110,9 +110,11 @@ the first of these that applies:
 1. `<safe>-<hash>`, if it already holds a `run-state.json`. `<safe>` is the basename with
    each character outside `A-Z a-z 0-9 . _ -` replaced by `-`. `<hash>` is the first 8 hex
    digits of the SHA-256 of the absolute plan path's UTF-8 bytes.
-2. The raw basename, if it holds a `run-state.json` whose `plan_path` is this plan, or that
-   has no `plan_path` (an older run: record it now). The raw basename must hold none of `$`,
-   backtick, `"`, `%` or `!`.
+2. The raw basename, if it holds a `run-state.json` whose `plan_path` is this plan. A
+   `run-state.json` with no `plan_path` is an older run, which may belong to a same-named
+   plan elsewhere: claim it (record `plan_path` now) only if one of its `phase-N.txt` files
+   names this plan's absolute path in its orientation line (Step 3). The raw basename must
+   hold none of `$`, backtick, `"`, `%` or `!`.
 3. The raw basename, if it equals `<safe>` and holds no `run-state.json`.
 4. Otherwise `<safe>-<hash>`.
 

@@ -73,7 +73,8 @@ group listings and docs, but not yet live-validated: the manual smoke test in
   basenames sanitized alike, or when same-named plans sat in different repos.
   `run-state.json` now records `plan_path`. A sanitized name, or one already
   used by another plan, gets an 8-hex SHA-256 suffix of the plan path. An
-  existing run under the old unsanitized name is still resumed from there.
+  existing run under the old unsanitized name is still resumed from there, but
+  only when one of its phase files names this plan's path.
 - herdr: a worker whose result file appears while it is still `working` or
   `blocked` is waited to `idle` or `done` before release, so the coordinator
   never closes a pane mid-turn (`agent_prompt_stalled` and `timeout` in §5 no
