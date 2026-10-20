@@ -184,6 +184,28 @@ dispatch file is already loaded (Step 1). Create the runs directory
 rename it over the old one. A coordinator that dies mid-write must never leave a torn file
 for its successor. Record each id the moment the backend returns it.
 
+**Free text never goes on a command line.** A run-config `cwd`, a phase title, the plan
+path or an answer you send can hold `$`, a backtick or `"`, which a shell expands, or which
+ends the quoting, even inside `"..."`. So where a dispatch file's command takes such a value,
+it writes a bare word (`RP_CWD`, `RP_LABEL`, `RP_TEXT`) in its place and runs the command
+through `<runs dir>/with-args.py`. Before each such call, write
+`<runs dir>/args.json` with your file-writing tool. It holds one JSON object mapping each
+of the command's words to its value, with `"` and `\` JSON-escaped, and it replaces the
+previous call's object. Then run `python3 "<runs dir>/with-args.py" <command>`. The script
+swaps each word for its value as one argv element, so no shell parses the value. Save it
+when you create the runs directory, before any backend command (and on a resume if it is
+missing), with your file-writing tool:
+
+```python
+import json, os, subprocess, sys
+here = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(here, "args.json"), encoding="utf-8") as f:
+    values = json.load(f)
+sys.exit(subprocess.run([values.get(a, a) for a in sys.argv[1:]]).returncode)
+```
+
+Its exit code is the command's.
+
 Run state lives here and in the plan's tags — never inside the target repo.
 
 ## Step 3 — The loop

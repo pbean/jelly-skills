@@ -34,8 +34,9 @@ read only that reference from it.
 
 ## 1. Run binding
 
-One `<orca> orchestration run-create --objective "<plan title> — <abs plan path>" --json`
-per plan run; record the run id in `run-state.json`. Only the terminal bound to the Run may
+One `python3 "<runs dir>/with-args.py" <orca> orchestration run-create --objective RP_TEXT --json`
+per plan run, with `args.json` = `{"RP_TEXT": "<plan title> — <abs plan path>"}` (SKILL.md
+Step 2, "Free text never goes on a command line"); record the run id in `run-state.json`. Only the terminal bound to the Run may
 dispatch workers (anything else gets `consumer_fenced`). The binding is per-terminal and
 can lapse (e.g. after a compaction): a `run_required` error ("No Run is bound") means
 `<orca> orchestration run-use --id <run_id> --json` to re-bind — **never** create a second
@@ -264,7 +265,8 @@ Rolling waits, re-issued in a loop until a terminal event:
   stop. Never route around the breaker with a new Task or Run.
 - **A continuation is a new leg, never a retry**: release, then create the next leg's Task
   (§2) depending on this one, and start it (§3).
-- Answer a worker's `ask` with `<orca> orchestration reply --id <msg_id> --body "<answer>" --json`.
+- Answer a worker's `ask` with `python3 "<runs dir>/with-args.py" <orca> orchestration reply --id <msg_id> --body RP_TEXT --json`,
+  `args.json` = `{"RP_TEXT": "<answer>"}` (SKILL.md Step 2).
   Send mid-phase follow-ups with `<orca> orchestration send --to dispatch:<id> ...` — never by
   typing into its terminal. Workers pick them up at their checkpoints (§8b).
 - **Before ending the run** (Completed or Blocked; never on a pause on a question), enumerate leftovers with
@@ -376,10 +378,12 @@ A timeout still prints a normal result, so read `result.wait.satisfied`, not the
 code. On `false`, wait once more with `--timeout-ms 180000`. Still `false` → handoff
 step 8 (the one diagnostic read below).
 
-Then send **one line** (handoff step 6 has the text; it has no newline in it):
+Then send **one line** (handoff step 6 has the text; it has no newline in it). It names the
+plan path, which can hold shell characters, so it goes through `args.json` =
+`{"RP_TEXT": "<one line>"}` (SKILL.md Step 2):
 
 ```
-<orca> terminal send --terminal <successor> --text "<one line>" --enter --wait-submit 30 --json
+python3 "<runs dir>/with-args.py" <orca> terminal send --terminal <successor> --text RP_TEXT --enter --wait-submit 30 --json
 ```
 
 - **Submitted**: `result.send.prompt.stages` contains `turn_started`.

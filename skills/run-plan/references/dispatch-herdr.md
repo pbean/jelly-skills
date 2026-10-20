@@ -119,8 +119,11 @@ Each attempt gets a new tab in `run-config.cwd`, not focused, in your own pane's
 
 ```
 herdr pane current --current
-herdr tab create --workspace <workspace_id> --cwd "<run-config.cwd>" --label "S<N> leg <g>: <phase title>" --no-focus
+python3 "<runs dir>/with-args.py" herdr tab create --workspace <workspace_id> --cwd RP_CWD --label RP_LABEL --no-focus
 ```
+
+with `args.json` = `{"RP_CWD": "<run-config.cwd>", "RP_LABEL": "S<N> leg <g>: <phase title>"}`
+(SKILL.md Step 2, "Free text never goes on a command line").
 
 `<workspace_id>` is `.result.pane.workspace_id` from the first call. Without `--workspace`
 herdr uses the *focused* workspace, so a user looking at another one would get the run's
@@ -431,8 +434,10 @@ resolved right before as in §3, and `run-config.cwd`, not focused:
 
 ```
 herdr pane current --current
-herdr tab create --workspace <workspace_id> --cwd "<run-config.cwd>" --label "run-plan coordinator gen <G+1>" --no-focus
+python3 "<runs dir>/with-args.py" herdr tab create --workspace <workspace_id> --cwd RP_CWD --label "run-plan coordinator gen <G+1>" --no-focus
 ```
+
+with `args.json` = `{"RP_CWD": "<run-config.cwd>"}` (SKILL.md Step 2).
 
 Record `.result.tab.tab_id` and `.result.root_pane.pane_id` at once, in `run-log.md` and
 in the `handoffs[]` entry as `successor_tab` and `successor_pane`. Never record them as a
@@ -516,10 +521,12 @@ On `idle` or `done`, send the line below; that is still the first send. A `timeo
 second pre-send dialog → handoff step 8's dialog branch with the line unsent, without the
 diagnostic read.
 
-**Send one line** (handoff step 6 has the text; it has no newline in it):
+**Send one line** (handoff step 6 has the text; it has no newline in it). It names the
+plan path, which can hold shell characters, so it goes through `args.json` =
+`{"RP_TEXT": "<one line>"}` (SKILL.md Step 2):
 
 ```
-herdr agent prompt <successor> "<one line>" --wait --until working --until blocked --timeout 60000
+python3 "<runs dir>/with-args.py" herdr agent prompt <successor> RP_TEXT --wait --until working --until blocked --timeout 60000
 ```
 
 - **Returns `agent_status: "working"`**: the line was submitted and the turn started. Go

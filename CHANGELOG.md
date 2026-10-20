@@ -61,6 +61,14 @@ group listings and docs, but not yet live-validated: the manual smoke test in
   a backtick, `"`, `%` or `!` falls back to `~/.agents/plans/runs/`. Workers
   paste runs-dir paths inside `"..."`, where those characters still expand. The
   herdr result rename now uses a fixed `<result path>.tmp` temp name.
+- Free-text command values reach the backend through `<runs dir>/with-args.py`
+  (SKILL.md Step 2) as one argv element each. The script reads them from an
+  `args.json` that is written with the file-writing tool. These values are
+  herdr's tab `--cwd` and `--label` (§3, §9), the successor's one-line prompt
+  (herdr `agent prompt`, Orca `terminal send --text`), Orca's `run-create
+  --objective`, and `reply --body`. Before, they were pasted inside `"..."`, so a
+  `$`, backtick or `"` in a cwd, a phase title, the plan path or an answer was
+  expanded by the shell or ended the quoting.
 - Two plans no longer share a runs directory. Before, they did when their
   basenames sanitized alike, or when same-named plans sat in different repos.
   `run-state.json` now records `plan_path`. A sanitized name, or one already
