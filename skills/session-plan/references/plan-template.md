@@ -26,7 +26,11 @@ default to the agent doing the planning. `model` is optional: set it to a
 provider model id for agents Orca can pick a model for (e.g. `opus` for
 `claude`), and omit it for agents that take the model from their own config.
 `effort` (e.g. `high`) is optional too, needs `model`, and belongs in the block
-only when the user asks for one. Parse rules and optional keys live in the run-plan skill's
+only when the user asks for one. `backend` (`orca` | `herdr`) is optional; leave it
+out and the runner detects it and writes it in (see plan-format.md). `agent_args`
+is herdr only: a string passed verbatim to `herdr agent start`, such as permission
+flags for an unattended worker (see plan-format.md). With herdr, `agent` is a
+herdr `--kind`. Parse rules and optional keys live in the run-plan skill's
 `plan-format.md` — `../../run-plan/references/plan-format.md` relative to this
 file. That file is the canonical contract between this template and the
 runner; keep the two in step.

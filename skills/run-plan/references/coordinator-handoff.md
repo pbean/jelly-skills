@@ -13,7 +13,7 @@ This file is backend-neutral. The backend's own commands for each step (opening 
 successor's terminal, sending its first line, confirming the takeover, and telling
 whether you can launch at all) are in the dispatch backend's "Coordinator succession"
 section: §9 of the dispatch file that SKILL.md's "Contracts to load first" names. Below,
-`ctxcheck` means `python3 <ctxcheck_path>`, the absolute path recorded in
+`ctxcheck` means `python3 "<ctxcheck_path>"`, the absolute path recorded in
 `run-state.json`. "Generation" counts coordinators (1 is the one
 the user started). It is never used for a phase's legs.
 
@@ -51,17 +51,18 @@ Before you write anything, run the backend §9 probe for "am I inside a backend 
 then `ctxcheck launch-command --json`. Both are read-only. `launch-command` walks your own
 process ancestry, finds your agent CLI, and prints the command line that starts a fresh
 session of it (resume arguments and the initial prompt stripped). It exits 3 when no agent
-ancestor is found.
+ancestor is found, and always on native Windows, which it can't walk (WSL works).
 
 If the probe fails, or `launch-command` exits non-zero, you can't launch: still do steps
 2-5, then take the **fallback** in step 9.
 
 ### 2. Write the handoff note
 
-First settle your inbox per the backend's §9: acknowledge the deliveries you have already
-processed (the last `worker_done` among them), so nothing you handled is replayed to the
-successor and the takeover wait in step 7 can block. This is the last acknowledgement you
-make.
+When the backend has an inbox, first settle it per the backend's §9: acknowledge the
+deliveries you have already processed (the last completion report among them), so nothing
+you handled is replayed to the successor and the takeover wait in step 7 can block. This
+is the last acknowledgement you make. A backend with no inbox has nothing to settle; its
+§9 says so.
 
 Then write `<runs dir>/coordinator-handoff.md`, overwriting any note an earlier generation left
 (those are summarized in `run-log.md` and `handoffs[]`). Write it for an agent that has
@@ -99,9 +100,10 @@ launched**, so the successor never reads a state that doesn't expect it.
 
 ### 4. Stop acknowledging
 
-From here on, **never acknowledge a backend delivery**, and don't act on one. Anything
-that arrives now stays unacknowledged, so the successor receives it on replay. A message
-you ack now is a message nobody acts on.
+When the backend has an inbox: from here on, **never acknowledge a backend delivery**,
+and don't act on one. Anything that arrives now stays unacknowledged, so the successor
+receives it on replay. A message you ack now is a message nobody acts on. A backend with
+no inbox has nothing to hold back; go on to step 5.
 
 ### 5. Disarm
 
@@ -127,16 +129,47 @@ prompt. It keeps your launch posture (permissions, sandbox, model) intact. A com
 built from the agent name alone gets different defaults, and the successor may stop for
 confirmation on every action.
 
+**Pass `shell_command` as one argument, never pasted into your own command line.** It is
+`shlex.join` output: a retained argument such as `'x=$(cmd)'` is safe only while
+single-quoted, and wrapping it in `"..."` lets your shell expand it (or a `"` inside end
+it) before the backend sees it. So the backend's §9 hands it over through this script,
+which re-runs `launch-command` (with the `ctxcheck_path` in the `run-state.json` beside it)
+and substitutes `shell_command`, as one argv element, for the literal `@SHELL_COMMAND@`.
+Save it to `<runs dir>/with-shell-command.py` with your file-writing tool (see "Guarded
+writes"):
+
+```python
+import json, os, subprocess, sys
+here, cmd = os.path.dirname(os.path.abspath(__file__)), sys.argv[1:]
+with open(os.path.join(here, "run-state.json")) as f:
+    ctxcheck = json.load(f)["ctxcheck_path"]
+got = subprocess.run([sys.executable, ctxcheck, "launch-command", "--json"],
+                     capture_output=True, text=True)
+if got.returncode:
+    sys.exit(got.returncode)
+line = json.loads(got.stdout)["shell_command"]
+sys.exit(subprocess.run([line if a == "@SHELL_COMMAND@" else a for a in cmd]).returncode)
+```
+
+```
+python3 "<runs dir>/with-shell-command.py" <backend command, with @SHELL_COMMAND@ as one argument>
+```
+
+The script's exit code is the backend command's, or `launch-command`'s when that fails.
+
 ### 7. Confirm the takeover
 
-The successor's first backend act rebinds the run to its own terminal, which fences you.
-Right after that it records `takeover: {generation: G+1, at}` in `run-state.json`.
-Wait for that per the backend's §9 (one bounded wait of about ten minutes). **Either** of
-these confirms the takeover:
+The successor's first backend act rebinds the run to its own terminal, which fences you
+when the backend has fencing. In the same guarded write, under the same lock, it records
+`takeover: {generation: G+1, at}` in `run-state.json`. Wait for that per the backend's §9
+(one bounded wait of about ten minutes). **Either** of these confirms the takeover:
 
 - the backend reports that you were fenced (the run now belongs to another terminal);
 - `run-state.json` shows `takeover.generation == G+1`. In that case any later backend call
   you make fails as fenced or unbound; that is expected.
+
+A backend with no fencing has nothing to report, so it confirms by `run-state.json`
+alone: its §9 polls the file, and from then on you treat the run as the successor's.
 
 Re-read `run-state.json` after the wait returns, whatever it returned.
 
@@ -148,16 +181,19 @@ diagnosis only:
 - **A permission or trust dialog** is on screen. Only a person can clear it. Tell the
   user what it shows and give them the one line from step 6 in case its composer is
   empty after they clear it. **Don't re-send it yourself.** Leave `takeover_pending` set
-  and end your turn. Once the dialog is cleared, the successor takes over by itself.
+  and end your turn. If the line was sent, the successor takes over by itself once the
+  dialog is cleared. If it was never sent (the backend's §9 says so), tell the user plainly
+  that they must submit the line after clearing the dialog.
 - **The composer is still empty** (the line was swallowed while the agent was booting).
   Re-send the line once, then wait once more as in step 7.
-- **Anything else, or still no takeover after the re-send**: the succession failed. Tell
-  the user what you saw. Re-arm yourself with the same flags you armed with at the start,
-  clear `takeover_pending` (atomically), and mark the last `handoffs[]` entry
-  `outcome: failed`. Then ask the user whether to carry on over budget or stop for a
-  manual restart, and end your turn on that question. If the successor's terminal is
-  still open, name it: a successor that wakes later finds `takeover_pending` cleared and
-  stands down.
+- **Anything else, or still no takeover after the re-send**: the succession failed. In
+  one guarded write (below), clear `takeover_pending` and mark the last `handoffs[]` entry
+  `outcome: failed`. If the guard finds `takeover.generation == G+1`, the successor took
+  over after all: that is step 7's confirmation, so go to step 9's success instead.
+  Otherwise tell the user what you saw, re-arm yourself with the same flags you armed with
+  at the start, and ask the user whether to carry on over budget or stop for a manual
+  restart, ending your turn on that question. If the successor's terminal is still open,
+  name it: a successor that wakes later fails its own guard and stands down.
 
 ### 9. Finish
 
@@ -173,6 +209,66 @@ diagnosis only:
   run's cwd and run the run-plan skill on the plan path (Claude Code:
   `/run-plan <plan path>`). That session takes over as the successor (below). End your
   turn.
+
+### Guarded writes
+
+Two writes race each other: the successor's acknowledgment (Taking over step 3) and the
+predecessor's give-up (step 8). A slow successor can pass its first look at
+`takeover_pending` before the predecessor gives up and still reach its write afterward.
+So each of the two re-reads and checks the state under one exclusive lock,
+`<runs dir>/run-state.lock`, and writes only if its check holds. Exactly one of them
+wins. Arguments after the state path are a backend command to run under the lock once
+the check holds, before the write; only the successor passes one (Taking over step 2).
+
+Save the script below, with the check and the changes filled in, to
+`<runs dir>/guarded-write-g<your generation>.py` with your file-writing tool, then run it:
+
+```
+python3 "<runs dir>/guarded-write-g<your generation>.py" "<runs dir>/run-state.json" [<rebind command> ...]
+```
+
+Use a file, never a shell heredoc: PowerShell and cmd reject `<<`, and a script file runs
+the same from every shell. The generation in the name keeps the two sides' scripts apart.
+Where `python3` isn't on PATH (some native Windows installs), use `py -3` or `python`.
+
+```python
+import json, os, subprocess, sys, tempfile
+try:
+    import fcntl
+    def lock_ex(f): fcntl.flock(f, fcntl.LOCK_EX)
+except ImportError:        # native Windows: no fcntl
+    import msvcrt
+    def lock_ex(f):
+        f.seek(0)
+        while True:        # LK_LOCK gives up after ~10s; keep waiting
+            try:
+                return msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            except OSError:
+                pass
+path, rebind = sys.argv[1], sys.argv[2:]
+with open(os.path.join(os.path.dirname(path), "run-state.lock"), "a") as lock:
+    lock_ex(lock)
+    with open(path) as f:
+        state = json.load(f)
+    if not CHECK:          # the check, below
+        sys.exit(3)        # lost the race: nothing written
+    if rebind and subprocess.run(rebind).returncode != 0:
+        sys.exit(4)        # the rebind failed: nothing written
+    ...                    # the changes, below
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        json.dump(state, f, indent=2)
+    os.replace(tmp, path)
+```
+
+- **Successor**: the check is `state.get("takeover_pending") == <your generation>`; the
+  changes are Taking over step 3's.
+- **Predecessor**: the check is `(state.get("takeover") or {}).get("generation") != G+1`;
+  the changes are step 8's.
+
+Exit 3 means the other side won. Exit 4 means the backend refused the rebind; its own
+output says why. Every other `run-state.json` write has one writer and
+stays a plain atomic write.
 
 ## Taking over (you are the successor)
 
@@ -190,18 +286,26 @@ Then, in order:
 1. **Read the handoff note**, `<runs dir>/coordinator-handoff.md`, before anything else.
 2. **Rebind the backend run** recorded in `run-state.json` to your terminal, per the
    backend's §9 and §1. Never create a new run: a second run splits the task history.
+   When the rebind is a backend command (one that fences the predecessor), don't run it
+   on its own: pass it to step 3's guarded write, which runs it under the lock. Run alone,
+   it could fence a predecessor that gave up a moment earlier, leaving nobody driving.
 3. **Acknowledge the takeover right away**, because the predecessor is waiting on it.
-   Atomically write `takeover: {generation: <you>, at}`, set `coordinator_generation` to
-   your generation, and clear `takeover_pending`. Log it in `run-log.md`.
+   In one guarded write ("Guarded writes" above), record `takeover: {generation: <you>,
+   at}`, set `coordinator_generation` to your generation, and clear `takeover_pending`,
+   together with any `owner` change the backend's §9 puts in the same write. Log it in
+   `run-log.md`. **Exit 3** means the predecessor gave up and resumed while you were
+   starting: stand down without touching the run, tell the user, and end your turn.
+   **Exit 4** means the rebind failed and nothing was recorded: tell the user what the
+   backend said and end your turn; the predecessor's wait runs out and it decides.
 4. **Skip what an earlier generation already settled.** Skip Step 1's confirmations and
    the resume rule that a `[running]` tag means "confirm with the user" (the tag is your
    predecessor's, and it is live). Never re-normalize the plan, and never re-ask the
    run-config. Reuse `ctxcheck_path` from `run-state.json`.
 5. **Reconcile** the backend's task list, the plan's tags and the `legs` in
    `run-state.json` against the note. **Recorded state wins** where they disagree: the
-   note is a predecessor's account, the records are what happened. Then process the
-   unacknowledged batch your predecessor left you, validating each message against the
-   active dispatch ids as usual.
+   note is a predecessor's account, the records are what happened. When the backend
+   has an inbox, then process the unacknowledged batch your predecessor left you,
+   validating each message against the active dispatch ids as usual.
 6. **Arm yourself.** The marker is per session, so it didn't come with you. On Claude
    Code invoke the context-budget skill first, then arm as SKILL.md "Context budget"
    says, with the inherited gate (`coordinator_handoff_pct`, when set).

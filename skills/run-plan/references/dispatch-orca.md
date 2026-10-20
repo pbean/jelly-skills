@@ -1,9 +1,7 @@
 # Dispatch backend: Orca orchestration
 
-This file is the **only** place run-plan names its dispatch backend. To move to another
-backend (herdr, plain tmux, …), write a sibling `dispatch-<name>.md` with the same section
-headings — preamble text, completion paragraph, dispatch/wait/retry procedure — and nothing
-in SKILL.md or plan-format.md changes.
+This file is run-plan's Orca dispatch backend, and its section numbers are the contract
+SKILL.md cites (see SKILL.md "Dispatch backends").
 
 It documents the loop **shape** and the pitfalls, for Orca 1.4.229 and later. The command
 lines below were checked against `orca-ide` 1.4.229's `--help` and bundled guide on
@@ -36,8 +34,9 @@ read only that reference from it.
 
 ## 1. Run binding
 
-One `<orca> orchestration run-create --objective "<plan title> — <abs plan path>" --json`
-per plan run; record the run id in `run-state.json`. Only the terminal bound to the Run may
+One `python3 "<runs dir>/with-args.py" <orca> orchestration run-create --objective RP_TEXT --json`
+per plan run, with `args.json` = `{"RP_TEXT": "<plan title> — <abs plan path>"}` (SKILL.md
+Step 2, "Free text never goes on a command line"); record the run id in `run-state.json`. Only the terminal bound to the Run may
 dispatch workers (anything else gets `consumer_fenced`). The binding is per-terminal and
 can lapse (e.g. after a compaction): a `run_required` error ("No Run is bound") means
 `<orca> orchestration run-use --id <run_id> --json` to re-bind — **never** create a second
@@ -266,10 +265,11 @@ Rolling waits, re-issued in a loop until a terminal event:
   stop. Never route around the breaker with a new Task or Run.
 - **A continuation is a new leg, never a retry**: release, then create the next leg's Task
   (§2) depending on this one, and start it (§3).
-- Answer a worker's `ask` with `<orca> orchestration reply --id <msg_id> --body "<answer>" --json`.
+- Answer a worker's `ask` with `python3 "<runs dir>/with-args.py" <orca> orchestration reply --id <msg_id> --body RP_TEXT --json`,
+  `args.json` = `{"RP_TEXT": "<answer>"}` (SKILL.md Step 2).
   Send mid-phase follow-ups with `<orca> orchestration send --to dispatch:<id> ...` — never by
   typing into its terminal. Workers pick them up at their checkpoints (§8b).
-- **Before ending the run** (any exit state), enumerate leftovers with
+- **Before ending the run** (Completed or Blocked; never on a pause on a question), enumerate leftovers with
   `<orca> orchestration worker-list --run <run_id> --terminal-state reclaimable --json` and
   release each one listed. Rows page at 100: while `page.hasMore`, continue with
   `--cursor <page.nextCursor>`. The run isn't over until that list is empty.
@@ -354,10 +354,11 @@ takeover wait below block instead of returning a replay at once.
 the Orca worktree enclosing the shell's cwd:
 
 ```
-<orca> terminal create --worktree active --title "run-plan coordinator gen <G+1>" --command "<shell_command>" --json
+python3 "<runs dir>/with-shell-command.py" <orca> terminal create --worktree active --title "run-plan coordinator gen <G+1>" --command @SHELL_COMMAND@ --json
 ```
 
-- `<shell_command>` is `ctxcheck launch-command --json`'s `shell_command`, verbatim. Orca
+- The script (handoff step 6) passes `ctxcheck launch-command --json`'s `shell_command` as
+  `--command`'s value, verbatim and as one argument, so your own shell never parses it. Orca
   types it into a login shell, so the agent's launcher defaults don't apply. That is why
   the command is your own detected argv and never a bare agent name or a hand-built one.
 - `terminal create --help` points agent starts at `<orca> agent launch`. Not here:
@@ -377,10 +378,12 @@ A timeout still prints a normal result, so read `result.wait.satisfied`, not the
 code. On `false`, wait once more with `--timeout-ms 180000`. Still `false` → handoff
 step 8 (the one diagnostic read below).
 
-Then send **one line** (handoff step 6 has the text; it has no newline in it):
+Then send **one line** (handoff step 6 has the text; it has no newline in it). It names the
+plan path, which can hold shell characters, so it goes through `args.json` =
+`{"RP_TEXT": "<one line>"}` (SKILL.md Step 2):
 
 ```
-<orca> terminal send --terminal <successor> --text "<one line>" --enter --wait-submit 30 --json
+python3 "<runs dir>/with-args.py" <orca> terminal send --terminal <successor> --text RP_TEXT --enter --wait-submit 30 --json
 ```
 
 - **Submitted**: `result.send.prompt.stages` contains `turn_started`.
@@ -393,7 +396,10 @@ Then send **one line** (handoff step 6 has the text; it has no newline in it):
 
 **Confirm the takeover** (handoff step 7). The successor rebinds with
 `<orca> orchestration run-use --id <run_id> --json` from its own terminal, the deliberate
-use of the rebinding §1 warns about. That fences you. Wait for it **without `--ack`**:
+use of the rebinding §1 warns about. It runs that command inside its guarded
+acknowledgment (`coordinator-handoff.md`, "Guarded writes", passing the `run-use` argv
+after the state path), so the rebind happens only while `takeover_pending` still names it
+and never after your give-up. That fences you. Wait for it **without `--ack`**:
 
 ```
 <orca> orchestration check --wait --types worker_done,escalation,question --timeout-ms 600000 --json

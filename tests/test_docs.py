@@ -21,6 +21,10 @@ MENTION = re.compile(r"(?:\bctxcheck\b[\"'>]?|<ABS_CTXCHECK>|<ctxcheck_path>)([^
 # An Orca verb follows its command group: `<orca> orchestration worker-start`,
 # `orca-ide orchestration check`, or a bare `terminal read` in a code span.
 ORCA_VERB = re.compile(r"(?<![\w-])(orchestration|terminal)\s+([a-z][a-z0-9-]*)")
+# A herdr command names its group, then its verb: `herdr agent start <name> ...`.
+# `herdr status` has no verb, and a bare `herdr agent` names the group's listing.
+HERDR_VERB = re.compile(r"(?<![\w-])herdr\s+(agent|pane|tab|workspace|integration|status)\b"
+                        r"(?:\s+([a-z][a-z-]*))?")
 FENCE = re.compile(r"^\s*(```|~~~)")
 INLINE = re.compile(r"`([^`\n]+)`")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
@@ -231,6 +235,96 @@ class OrcaVerbsTest(unittest.TestCase):
                                  f"orca-ide {group} {verb} is retired")
 
 
+def _run_herdr(*args: str) -> str:
+    """Output of a read-only herdr call. Never bare `herdr`: that launches its TUI."""
+    assert args, "bare herdr launches the TUI"
+    r = subprocess.run(["herdr", *args], capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, timeout=60)
+    return r.stdout + r.stderr
+
+
+@lru_cache(maxsize=None)
+def _herdr_usage(group: str) -> dict:
+    """{verb: usage lines} from `herdr <group>`'s listing.
+
+    `herdr <group> <verb> --help` prints the top-level help, so the group's
+    own listing (`  herdr <group> <verb> ...`, one or more lines per verb) is
+    the only per-verb usage."""
+    usage = {}
+    for line in _run_herdr(group).splitlines():
+        m = re.match(rf"^\s+herdr {group} ([a-z][a-z-]*)\b(.*)$", line)
+        if m:
+            usage[m.group(1)] = (usage.get(m.group(1), "") + " " + line.strip()).strip()
+    return usage
+
+
+@lru_cache(maxsize=None)
+def _herdr_global_flags() -> frozenset:
+    """Flags in the top-level help's Options block, which any command may take."""
+    text = _run_herdr("--help")
+    return frozenset(FLAG.findall(text[text.find("\nOptions:"):]))
+
+
+HERDR_DISPATCH = SKILLS / "run-plan" / "references" / "dispatch-herdr.md"
+
+
+def herdr_commands(path: Path = HERDR_DISPATCH) -> list[tuple[str, str, set]]:
+    """(group, verb, flags) for each herdr command a doc names in code.
+
+    A command's flags run to the end of its snippet or shell command; what
+    follows a lone `--` belongs to the agent, not to herdr."""
+    found = []
+    _front, code, prose = _split(path.read_text())
+    for snippet in [*code, *INLINE.findall(prose)]:
+        for m in HERDR_VERB.finditer(snippet):
+            rest = re.sub(r'"[^"]*"', '""', snippet[m.end():])  # a quoted prompt is one word
+            rest = re.split(r"[;|&'`)]", rest, maxsplit=1)[0]
+            rest = re.split(r"(?<!\S)--(?!\S)", rest, maxsplit=1)[0]
+            found.append((m.group(1), m.group(2) or "", set(FLAG.findall(rest))))
+    return found
+
+
+class HerdrVerbsTest(unittest.TestCase):
+    """Every herdr command dispatch-herdr.md names is a live one, with live flags."""
+
+    def test_scanner_finds_verbs(self):
+        found = herdr_commands()
+        verbs = {(g, v) for g, v, _f in found}
+        self.assertIn(("agent", "start"), verbs)
+        self.assertIn(("tab", "create"), verbs)
+        self.assertIn(("agent", "prompt"), verbs)
+        flags = set().union(*(f for _g, _v, f in found))
+        for flag in ("--until", "--kind", "--pane", "--no-focus", "--source"):
+            self.assertIn(flag, flags)
+        # The agent's own arguments after `--` are not herdr flags.
+        self.assertNotIn("--model", flags)
+
+    @unittest.skipIf(shutil.which("herdr") is None,
+                     "herdr is not installed; can't check herdr verbs")
+    def test_verbs_exist(self):
+        found = herdr_commands()
+        self.assertTrue(found, "no herdr commands extracted from dispatch-herdr.md")
+        for group, verb, _flags in found:
+            if group == "status" or not verb:  # a group's bare listing, or `herdr status`
+                continue
+            with self.subTest(command=f"herdr {group} {verb}"):
+                usage = _herdr_usage(group)
+                self.assertTrue(usage, f"herdr {group} listed nothing")
+                self.assertIn(verb, usage, f"herdr {group} has no verb {verb!r}")
+
+    @unittest.skipIf(shutil.which("herdr") is None,
+                     "herdr is not installed; can't check herdr flags")
+    def test_flags_exist(self):
+        for group, verb, flags in herdr_commands():
+            if group == "status" or not verb:
+                continue
+            usage = _herdr_usage(group).get(verb, "")
+            known = set(FLAG.findall(usage)) | _herdr_global_flags()
+            for flag in sorted(flags):
+                with self.subTest(command=f"herdr {group} {verb}", flag=flag):
+                    self.assertIn(flag, known, f"herdr {group} {verb} has no flag {flag}")
+
+
 def _section(path: Path, heading: str) -> str:
     text = path.read_text()
     start = text.index(heading)
@@ -240,23 +334,31 @@ def _section(path: Path, heading: str) -> str:
 
 RUN_PLAN = SKILLS / "run-plan"
 HANDOFF = RUN_PLAN / "references" / "coordinator-handoff.md"
-DISPATCH = RUN_PLAN / "references" / "dispatch-orca.md"
-# Names that would tie the backend-neutral handoff doctrine to Orca.
-ORCA_NAMES = re.compile(r"\borca\b|orca-ide|\borchestration\b|consumer_fenced|run_required"
-                        r"|--ack\b|\b(?:run-(?:use|create|current|list|show)"
-                        r"|task-(?:create|list|update)|worker-[a-z]+|gate-[a-z]+)\b",
-                        re.IGNORECASE)
+DISPATCH_FILES = sorted((RUN_PLAN / "references").glob("dispatch-*.md"))
+DISPATCH_ORCA = RUN_PLAN / "references" / "dispatch-orca.md"
+# Names that would tie backend-neutral doctrine to a backend: Orca's, then herdr's.
+BACKEND_NAMES = re.compile(r"\borca\b|orca-ide|\borchestration\b|consumer_fenced|run_required"
+                           r"|--ack\b|\b(?:run-(?:use|create|current|list|show)"
+                           r"|task-(?:create|list|update)|worker-[a-z]+|gate-[a-z]+)\b"
+                           r"|\bherdr\b|\bherdr_\w+|\bagent_(?:not_\w+|prompt_\w+|blocked"
+                           r"|started|name_taken)\b",
+                           re.IGNORECASE)
 
 
 class CoordinatorSuccessionDocsTest(unittest.TestCase):
     """The handoff doctrine is backend-neutral, dispatch-orca §9 holds the
     Orca half, and run-plan's ctxcheck calls are real ones."""
 
-    def test_handoff_names_no_orca_commands(self):
+    def test_handoff_names_no_backend_names(self):
         text = HANDOFF.read_text()
-        self.assertEqual(ORCA_NAMES.findall(text), [])
+        self.assertEqual(BACKEND_NAMES.findall(text), [])
         # In code only: prose says "the successor's terminal is ...".
         self.assertEqual([v for s in _code_snippets(text) for v in ORCA_VERB.findall(s)], [])
+
+    def test_handoff_names_no_herdr_commands(self):
+        text = HANDOFF.read_text()
+        self.assertEqual([m.group(0) for s in _code_snippets(text)
+                          for m in HERDR_VERB.finditer(s)], [])
 
     @unittest.skipIf(shutil.which("orca-ide") is None,
                      "orca-ide is not installed; can't list Orca verbs")
@@ -269,7 +371,7 @@ class CoordinatorSuccessionDocsTest(unittest.TestCase):
                         self.assertNotRegex(text, rf"(?<![\w-]){re.escape(verb)}(?![\w-])")
 
     def test_section_9_verbs(self):
-        section = _section(DISPATCH, "## 9. Coordinator succession")
+        section = _section(DISPATCH_ORCA, "## 9. Coordinator succession")
         _front, code, prose = _split(section)
         verbs = {gv for snippet in [*code, *INLINE.findall(prose)]
                  for gv in ORCA_VERB.findall(snippet)}
@@ -283,9 +385,24 @@ class CoordinatorSuccessionDocsTest(unittest.TestCase):
             with self.subTest(verb=f"{group} {verb}"):
                 self.assertIn(verb, _orca_commands(group))
 
+    def test_herdr_section_9_verbs(self):
+        section = _section(HERDR_DISPATCH, "## 9. Coordinator succession")
+        _front, code, prose = _split(section)
+        verbs = {(m.group(1), m.group(2)) for snippet in [*code, *INLINE.findall(prose)]
+                 for m in HERDR_VERB.finditer(snippet) if m.group(2)}
+        for want in (("pane", "current"), ("tab", "create"), ("agent", "start"),
+                     ("pane", "run"), ("agent", "get"), ("agent", "rename"),
+                     ("agent", "wait"), ("agent", "prompt"), ("agent", "read")):
+            self.assertIn(want, verbs)
+        if shutil.which("herdr") is None:
+            self.skipTest("herdr is not installed; verbs extracted but not checked")
+        for group, verb in sorted(verbs):
+            with self.subTest(verb=f"herdr {group} {verb}"):
+                self.assertIn(verb, _herdr_usage(group))
+
     def test_section_9_terminal_verbs_name_their_terminal(self):
         """Without --terminal, Orca targets the worktree's active terminal."""
-        section = _section(DISPATCH, "## 9. Coordinator succession")
+        section = _section(DISPATCH_ORCA, "## 9. Coordinator succession")
         _front, code, _prose = _split(section)
         for line in code:
             m = re.search(r"terminal (show|wait|send|read)\b", line)
@@ -315,6 +432,31 @@ class CoordinatorSuccessionDocsTest(unittest.TestCase):
                        "handoffs[]", "references/coordinator-handoff.md", "--disarm"):
             self.assertIn(needle, text)
 
+
+
+class DispatchShapeTest(unittest.TestCase):
+    """Every dispatch backend file has the sections SKILL.md cites by number,
+    and SKILL.md itself names no backend outside "## Dispatch backends"."""
+
+    def test_dispatch_files_share_sections(self):
+        self.assertTrue(DISPATCH_FILES, "no references/dispatch-*.md found")
+        for path in DISPATCH_FILES:
+            with self.subTest(file=path.name):
+                text = path.read_text()
+                numbers = [int(n) for n in re.findall(r"^## (\d)\. ", text, re.MULTILINE)]
+                self.assertEqual(numbers, list(range(10)))
+                for sub in ("8a", "8b"):
+                    self.assertRegex(text, rf"(?m)^### {sub}\. ")
+
+    def test_skill_md_is_backend_neutral(self):
+        path = RUN_PLAN / "SKILL.md"
+        heading = "## Dispatch backends"
+        # The frontmatter's description and compatibility name the backends on purpose.
+        _front, code, prose = _split(path.read_text().replace(_section(path, heading), ""))
+        body = "\n".join([*code, prose])
+        self.assertEqual(BACKEND_NAMES.findall(body), [])
+        self.assertEqual([v for s in [*code, *INLINE.findall(prose)]
+                          for v in ORCA_VERB.findall(s)], [])
 
 def frontmatter(path: Path) -> tuple[dict, dict]:
     """Top-level keys and the metadata block's keys, from simple YAML."""

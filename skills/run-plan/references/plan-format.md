@@ -21,11 +21,15 @@ cwd: /abs/path/to/repo
 ```
 ````
 
-- Required keys: `agent`, `branch`, `cwd`. `agent` is an Orca agent id (`claude`, `codex`,
-  `cursor`, `opencode`, … — `worker-start --help` lists the current set); `cwd` is where
-  phase sessions run; `branch` is the program's shared branch.
-- Optional keys: `model` (a provider model id, passed to the backend only when present —
-  omit it for agents that take their model from their own config; `worker-start --help`
+- Required keys: `agent`, `branch`, `cwd`. `agent` is the backend's agent id: an Orca agent
+  id (`claude`, `codex`, `cursor`, `opencode`, … — `worker-start --help` lists the current
+  set), or a herdr `--kind` (`herdr agent` lists the kinds); `cwd` is where phase sessions
+  run; `branch` is the program's shared branch.
+- Optional keys: `backend` (`orca` | `herdr`: the dispatch backend; detected when absent,
+  see the last bullet), `agent_args` (herdr only: a string passed verbatim after `--` to
+  `herdr agent start`, typically permission flags such as `--dangerously-skip-permissions`
+  for an unattended `claude`), `model` (a provider model id, passed to the backend only
+  when present — omit it for agents that take their model from their own config; `worker-start --help`
   lists which agents accept one), `effort` (a reasoning-effort level such as `high`, passed
   only together with `model` and only for agents that support it; leave it out to keep the
   agent's default), `max_consecutive_failures` (default 3), `continuation_cap` (default 3), and two context
@@ -39,10 +43,21 @@ cwd: /abs/path/to/repo
 - The runner parses only the **first** `run-config` fence. Unknown keys are ignored, not
   errors.
 - If the block or a required key is missing, the runner synthesizes defaults (`agent` = the
-  coordinator's own agent when it is an Orca agent id, otherwise ask; `model: opus` only
+  coordinator's own agent when the backend supports it as a worker (an Orca agent id, or a
+  herdr kind), otherwise ask; `model: opus` only
   when `agent: claude`, otherwise none; `cwd` = the current worktree; `branch` recovered
   from plan prose), confirms the synthesized block with the user **once** at run start, and
-  writes it into the plan during normalization.
+  writes it into the plan during normalization. `backend` is resolved before any other
+  default is synthesized, since the `agent` default depends on it.
+- When `backend` is absent, the runner detects it: a non-empty `$ORCA_TERMINAL_HANDLE`
+  means `orca`, and `HERDR_ENV=1` means `herdr`. Both or neither means ask the user once,
+  with `orca` as the default answer: a plan with no `backend` key and nothing detectable
+  keeps today's default, `orca`. The runner resolves it first (run-plan Step 1, before
+  normalization), writes it into the run-config during normalization, and records it in
+  `run-state.json`. On resume and in successors, `run-state.json`'s `backend` wins over
+  the plan and over detection, so a run never changes backend mid-flight. A
+  `run-state.json` without a `backend` key comes from an Orca-only runner (1.3 and
+  older) and means `orca`.
 
 ## 2. Phase unit and status tags
 
@@ -192,9 +207,9 @@ keeps the rest.
 > **Context budget:** this session measures its own context. On Claude Code, first invoke
 > the `context-budget` skill, which registers its backstop hook. On any other runtime, run
 > the commands below directly. Before your first edit, arm:
-> `python3 <ABS_CTXCHECK> --arm --role worker --label "session N of <abs plan path>" [--gate <worker_handoff_pct>]`.
+> `python3 "<ABS_CTXCHECK>" --arm --role worker --label "session N of <abs plan path>" [--gate <worker_handoff_pct>]`.
 > After each numbered step lands, and once more before starting any ablation check, run
-> `python3 <ABS_CTXCHECK>` and read its exit code. 0 means carry on. 3 means this runtime
+> `python3 "<ABS_CTXCHECK>"` and read its exit code. 0 means carry on. 3 means this runtime
 > can't be measured: say "no context budget on this runtime" once and carry on. 10, or a
 > backstop warning, means you are over budget: don't start the next numbered step; follow
 > the paragraph below.
@@ -212,6 +227,6 @@ keeps the rest.
 > as the dispatch instructions below describe, with `PHASE-STATUS: continuation-required`
 > as the first line of the body.
 >
-> **Disarm on both exits:** run `python3 <ABS_CTXCHECK> --disarm` after the commit and
+> **Disarm on both exits:** run `python3 "<ABS_CTXCHECK>" --disarm` after the commit and
 > plan update when the phase completes, or just before reporting when you stop for a
 > continuation.

@@ -16,7 +16,7 @@ open the next session and carry it on.
 The session-plan skill arms the planner as its first action:
 
 ```bash
-python3 <context-budget dir>/scripts/ctxcheck --arm --role planner --label "planning <topic>"
+python3 "<context-budget dir>/scripts/ctxcheck" --arm --role planner --label "planning <topic>"
 ```
 
 Then check with a plain `ctxcheck` at three boundaries:

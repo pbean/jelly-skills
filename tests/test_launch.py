@@ -9,6 +9,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import helpers  # noqa: F401 - puts the scripts dir on sys.path
@@ -162,6 +163,15 @@ class AncestorWalkTest(unittest.TestCase):
         self.assertEqual(code, EXIT_UNMEASURABLE)
         self.assertFalse(rec["found"])
         self.assertIn("no agent CLI", err)
+
+    def test_native_windows_exits_3(self):
+        out, err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.object(launch.sys, "platform", "win32"), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = launch.main(True)
+        self.assertEqual(code, EXIT_UNMEASURABLE)
+        self.assertFalse(json.loads(out.getvalue())["found"])
+        self.assertIn("native Windows", err.getvalue())
 
     def test_node_wrapped_agent(self):
         # npm's loader spawns the native binary: the outer loader is what the

@@ -87,9 +87,9 @@ status-line command. Running `ctxcheck install-statusline <runtime>` once
 makes that command also save a snapshot that `ctxcheck` can read:
 
 ```bash
-python3 <context-budget dir>/scripts/ctxcheck install-statusline antigravity --dry-run   # show the diff
-python3 <context-budget dir>/scripts/ctxcheck install-statusline antigravity
-python3 <context-budget dir>/scripts/ctxcheck install-statusline antigravity --uninstall
+python3 "<context-budget dir>/scripts/ctxcheck" install-statusline antigravity --dry-run   # show the diff
+python3 "<context-budget dir>/scripts/ctxcheck" install-statusline antigravity
+python3 "<context-budget dir>/scripts/ctxcheck" install-statusline antigravity --uninstall
 ```
 
 **What changes.** Exactly one setting changes, `statusLine.command`, in one
@@ -138,8 +138,9 @@ refreshed". Non-interactive (headless) runs draw no status line,
 so they can't be measured.
 
 **Copilot CLI isn't an Orca worker.** Orca has no Copilot agent id for
-dispatched workers. In a run-plan program, Copilot can only be the
-coordinator or a hand-run planner session.
+dispatched workers. In a run-plan program under Orca, Copilot can only be the
+coordinator or a hand-run planner session. herdr has a `copilot` kind, so
+under run-plan's herdr backend Copilot can be a phase worker too.
 
 ## Backstops
 

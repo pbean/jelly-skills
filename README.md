@@ -6,7 +6,7 @@ of fresh agent sessions, installable with the [`skills` CLI](https://github.com/
 | Skill | What it does |
 | --- | --- |
 | **session-plan** | Plans a feature, refactor or migration as a *session program*: phases each sized to fit one fresh session, a ready-to-paste kickoff prompt per phase, everything landing on one branch as one PR. It stops after the plan is approved and hands off instead of implementing. Small tasks get a one-session fast path. |
-| **run-plan** | Runs a session-plan plan unattended: dispatches each pending phase to a fresh agent session through Orca orchestration, waits for it, checks the plan file was updated, and moves on. It stops when the plan is done or a phase is blocked. A phase that outgrows one session continues in a new one, and a coordinator that fills its own context hands the run to a successor coordinator. |
+| **run-plan** | Runs a session-plan plan unattended: dispatches each pending phase to a fresh agent session through Orca orchestration or herdr, waits for it, checks the plan file was updated, and moves on. It stops when the plan is done or a phase is blocked. A phase that outgrows one session continues in a new one, and a coordinator that fills its own context hands the run to a successor coordinator. |
 | **context-budget** | Measures how full an agent session's context window is (`ctxcheck`, Python 3.9+ stdlib) against a per-role handoff gate, and holds the doctrine for what to do when a session goes over: a phase worker hands the rest of its phase to a fresh worker, a planner saves its draft and stops. Reads Claude Code, Codex, OpenCode and Pi sessions directly, and Copilot CLI, Antigravity and Cursor CLI through an opt-in status-line sidecar. |
 
 The flow is: ask your agent to plan something (session-plan triggers), approve the plan,
@@ -47,8 +47,14 @@ until you start a new one.
 - `python3` 3.9 or newer for `ctxcheck` (stdlib only, so macOS's system Python works).
   Docs always invoke it as `python3 <path>/ctxcheck`, because an install can lose the
   exec bit.
-- run-plan needs the **Orca CLI** with orchestration. On Linux, call it as `orca-ide`.
-  Never call bare `orca` there: that runs the GNOME screen reader.
+- run-plan needs one dispatch backend:
+  - the **Orca CLI** with orchestration. On Linux, call it as `orca-ide`. Never call bare
+    `orca` there: that runs the GNOME screen reader.
+  - or [**herdr**](https://herdr.dev) 0.9.5 or newer, with the coordinator running inside a
+    herdr pane (`HERDR_ENV=1`). herdr tracks each worker's state through its agent
+    integrations; `herdr integration status` shows whether the worker agent's integration
+    is installed and current. run-plan warns when it isn't, and never installs one itself.
+    Never run bare `herdr` from a script: it opens the TUI.
 
 ## Agent support
 
@@ -67,12 +73,20 @@ back otherwise:
 | Context backstop hook | A warning injected after a tool call (Antigravity: before a model call) once an armed session is over its gate. Automatic on Claude Code; one opt-in installer per other runtime. | Boundary checks only: the session checks itself between steps |
 
 The plan's `run-config` block chooses which agent the run-plan **workers** are, using any
-Orca agent id (`claude`, `codex`, `cursor`, `opencode`, …). `model` is optional; leave it
-out for agents that read the model from their own config. `effort` (e.g. `high`) is
-optional too and only applies together with `model`.
+Orca agent id (`claude`, `codex`, `cursor`, `opencode`, …) or herdr `--kind`. `model` is
+optional; leave it out for agents that read the model from their own config. `effort`
+(e.g. `high`) is optional too and only applies together with `model`. `backend`
+(`orca` | `herdr`) is optional: when it's absent, run-plan detects it from the
+environment (an Orca terminal, or a herdr pane), asks once if it can't tell, and writes the
+answer into the plan. `agent_args` is herdr only: a string passed verbatim to the worker
+agent, such as `--dangerously-skip-permissions` for an unattended `claude`. herdr launches
+agents with no flags of its own, so without one a worker stops at its first permission
+prompt.
 
 Run state goes to `<plan dir>/runs/<plan-name>/`. If the plan file is inside a git repo,
-it goes to `~/.agents/plans/runs/<plan-name>/` instead.
+it goes to `~/.agents/plans/runs/<plan-name>/` instead. When a plan name holds characters
+outside `A-Z a-z 0-9 . _ -`, or another plan already uses that name, the directory gets a
+short hash of the plan path, as in `<plan-name>-1a2b3c4d/`.
 
 ## Context budgets
 
@@ -83,13 +97,14 @@ lets the three roles in a program measure themselves and hand off first:
 - **Phase workers** (dispatched by run-plan) arm at the start, check after each numbered
   step, and when over their gate stop at a safe point, leave their edits uncommitted, write
   a continuation note and report `PHASE-STATUS: continuation-required`. run-plan then
-  starts the next **leg** of the same phase as a new Task in the same worktree.
+  starts the next **leg** of the same phase in a fresh session in the same worktree (a new
+  Task under Orca, a new tab under herdr).
 - **The planner** (session-plan) checks at three boundaries. When over, it saves the draft
   and a planning continuation, then tells you how to resume in a fresh session.
 - **The run-plan coordinator** checks between phases and between legs. When over (and
   more than the last phase is left), it writes a handoff note, launches a successor
-  coordinator in a new Orca terminal, confirms the takeover and stops. The successor
-  rebinds the Run and carries on. Each coordinator is a **generation**.
+  coordinator in a new Orca terminal or herdr tab, confirms the takeover and stops. The
+  successor rebinds the run and carries on. Each coordinator is a **generation**.
 
 Hand-pasted sessions aren't measured unless you ask (`ctxcheck` on its own just reports).
 
@@ -161,20 +176,26 @@ coordinator with the posture you want the successor to have. For an unattended r
 Claude Code that means something like `claude --dangerously-skip-permissions`. Otherwise
 the successor stops at a permission prompt; the predecessor tells you and doesn't re-send.
 
-Succession needs an Orca terminal. Outside one, the coordinator writes the handoff note
-and stops, and you start the successor yourself by running the same `/run-plan` line in a
-fresh session.
+Succession needs an Orca terminal or a herdr pane, on Linux, macOS or WSL: `launch-command`
+can't walk a native Windows process tree, so there the handoff is always by hand. Under Orca, the successor rebinds the
+Run, which fences the predecessor. Under herdr, the successor starts in a new tab, and the
+predecessor confirms the takeover from `run-state.json`, where the successor records its
+generation and takes over the run's `owner` (herdr has no run fencing of its own). Outside
+both, the coordinator writes the handoff note and stops, and you start the successor
+yourself by running the same `/run-plan` line in a fresh session.
 
 ### Copilot CLI is not an Orca worker
 
-Orca has no Copilot agent id for dispatched workers, so a Copilot session can be the
-run-plan coordinator or a planner you run by hand, never a phase worker.
+Orca has no Copilot agent id for dispatched workers, so under Orca a Copilot session can
+be the run-plan coordinator or a planner you run by hand, never a phase worker. herdr has a
+`copilot` kind, so under herdr Copilot can be a worker too (`agent: copilot`; run-plan
+passes it no `model` or `effort`).
 
 ### Testing
 
 `python3 -m unittest discover -s tests -v` runs the offline suite. The live path (a
-continuation leg and a coordinator succession inside a real Orca run) has a manual smoke
-test in [`tests/e2e/README.md`](tests/e2e/README.md).
+continuation leg and a coordinator succession inside a real Orca or herdr run) has a manual
+smoke test in [`tests/e2e/README.md`](tests/e2e/README.md).
 
 ## Migrating from hand-installed copies
 
