@@ -60,7 +60,7 @@ skill's directory.
 The companion **context-budget** skill measures how full this session's
 context is. It is installed alongside too, at `../context-budget/`, and its
 script is `../context-budget/scripts/ctxcheck`, always run as
-`python3 <absolute path>/ctxcheck`. On Claude Code, **invoke the
+`python3 "<absolute path>/ctxcheck"`. On Claude Code, **invoke the
 context-budget skill at the start of planning**: invoking it is what registers
 its backstop hook, which warns this session when it goes over budget. On other
 agents, just run the script.
@@ -75,14 +75,14 @@ If not already in plan mode, enter it (or hold the read-only discipline from
 **Arm the context budget first**, before any exploration:
 
 ```bash
-python3 <context-budget dir>/scripts/ctxcheck --arm --role planner --label "planning <topic>"
+python3 "<context-budget dir>/scripts/ctxcheck" --arm --role planner --label "planning <topic>"
 ```
 
 This is allowed in plan mode. `ctxcheck` writes only its own state dir (a
 marker under `${CTXCHECK_HOME:-${XDG_STATE_HOME:-~/.local/state}/jelly-skills/ctxcheck}/`), never the project, so
 arming is not a project edit. If it exits 3, this agent can't be measured:
 say "no context budget on this runtime" once and plan without checks. Then
-check with a plain `python3 <context-budget dir>/scripts/ctxcheck ; echo $?`
+check with a plain `python3 "<context-budget dir>/scripts/ctxcheck" ; echo $?`
 at three boundaries: after exploration, after the design settles, and before
 writing the session prompts (step 6). Exit 10, or a backstop warning, means
 you are over budget.
@@ -267,7 +267,7 @@ After approval, do exactly the plan's Post-approval steps and nothing more:
    phase as its own fresh session and updates the plan as it goes. Print the Session 1 prompt in full only if they say they'd rather
    drive a phase manually by pasting it.
 4. Disarm the context budget:
-   `python3 <context-budget dir>/scripts/ctxcheck --disarm`. Then stop.
+   `python3 "<context-budget dir>/scripts/ctxcheck" --disarm`. Then stop.
 
 No branch creation, no code edits, no "quick head start" — Session 1's prompt
 covers all of that, and it deserves a full window.

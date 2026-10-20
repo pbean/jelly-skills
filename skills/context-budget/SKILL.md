@@ -68,10 +68,10 @@ this skill's directory, and always run it through `python3`, because installs
 can drop the exec bit:
 
 ```bash
-python3 <this skill's dir>/scripts/ctxcheck --json
+python3 "<this skill's dir>/scripts/ctxcheck" --json
 ```
 
-Below, `ctxcheck` is short for `python3 <this skill's dir>/scripts/ctxcheck`.
+Below, `ctxcheck` is short for `python3 "<this skill's dir>/scripts/ctxcheck"`.
 
 ## Arm at the start
 

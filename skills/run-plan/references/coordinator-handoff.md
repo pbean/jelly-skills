@@ -13,7 +13,7 @@ This file is backend-neutral. The backend's own commands for each step (opening 
 successor's terminal, sending its first line, confirming the takeover, and telling
 whether you can launch at all) are in the dispatch backend's "Coordinator succession"
 section: §9 of the dispatch file that SKILL.md's "Contracts to load first" names. Below,
-`ctxcheck` means `python3 <ctxcheck_path>`, the absolute path recorded in
+`ctxcheck` means `python3 "<ctxcheck_path>"`, the absolute path recorded in
 `run-state.json`. "Generation" counts coordinators (1 is the one
 the user started). It is never used for a phase's legs.
 

@@ -35,14 +35,14 @@ directory carry everything a successor needs.
 ## Context budget
 
 You measure your own context with the sibling context-budget skill's `ctxcheck` (resolved
-in Step 0; below, `ctxcheck` means `python3 <ctxcheck_path>`).
+in Step 0; below, `ctxcheck` means `python3 "<ctxcheck_path>"`).
 
 - **Arm at the start of the run**, once Step 0 has resolved the path (a successor arms in
   its takeover steps instead). On Claude Code, invoke the context-budget skill first: that
   registers its backstop hook. Then:
 
   ```bash
-  python3 <ctxcheck_path> --arm --role coordinator --label "run-plan <plan basename>" --gate <coordinator_handoff_pct>
+  python3 "<ctxcheck_path>" --arm --role coordinator --label "run-plan <plan basename>" --gate <coordinator_handoff_pct>
   ```
 
   Pass `--gate` only when run-config sets `coordinator_handoff_pct`; without it the gate
@@ -52,13 +52,13 @@ in Step 0; below, `ctxcheck` means `python3 <ctxcheck_path>`).
 - **Check at every boundary with no worker in flight**: after a phase's worker is
   released, before loop step 2 flips the next phase to `[running]`, and after a
   continuation leg is released, before the next leg starts. A plain
-  `python3 <ctxcheck_path> ; echo $?` uses what you armed. Never check mid-phase or on a
+  `python3 "<ctxcheck_path>" ; echo $?` uses what you armed. Never check mid-phase or on a
   timer.
 - **Exit 10 → `references/coordinator-handoff.md`.** It finishes the last phase rather than
   hand off for it, and otherwise hands off to a successor coordinator that the backend
   launches in a fresh terminal with your own launch command, then confirms the takeover
   and ends your turn.
-- **Disarm on every exit** (`python3 <ctxcheck_path> --disarm`; see Exit states), so the
+- **Disarm on every exit** (`python3 "<ctxcheck_path>" --disarm`; see Exit states), so the
   backstop doesn't keep warning a session that no longer drives the run.
 
 ## Contracts to load first
@@ -254,7 +254,7 @@ the run stops there — later phases stay pending.
 ## Exit states
 
 Every exit leaves the plan self-describing. Every exit you take yourself also disarms
-your context budget (`python3 <ctxcheck_path> --disarm`), except a pause on a question,
+your context budget (`python3 "<ctxcheck_path>" --disarm`), except a pause on a question,
 where you stay armed for when the run continues:
 
 | Exit | Plan file reads | Also |

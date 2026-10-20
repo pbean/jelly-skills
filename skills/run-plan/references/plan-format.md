@@ -207,9 +207,9 @@ keeps the rest.
 > **Context budget:** this session measures its own context. On Claude Code, first invoke
 > the `context-budget` skill, which registers its backstop hook. On any other runtime, run
 > the commands below directly. Before your first edit, arm:
-> `python3 <ABS_CTXCHECK> --arm --role worker --label "session N of <abs plan path>" [--gate <worker_handoff_pct>]`.
+> `python3 "<ABS_CTXCHECK>" --arm --role worker --label "session N of <abs plan path>" [--gate <worker_handoff_pct>]`.
 > After each numbered step lands, and once more before starting any ablation check, run
-> `python3 <ABS_CTXCHECK>` and read its exit code. 0 means carry on. 3 means this runtime
+> `python3 "<ABS_CTXCHECK>"` and read its exit code. 0 means carry on. 3 means this runtime
 > can't be measured: say "no context budget on this runtime" once and carry on. 10, or a
 > backstop warning, means you are over budget: don't start the next numbered step; follow
 > the paragraph below.
@@ -227,6 +227,6 @@ keeps the rest.
 > as the dispatch instructions below describe, with `PHASE-STATUS: continuation-required`
 > as the first line of the body.
 >
-> **Disarm on both exits:** run `python3 <ABS_CTXCHECK> --disarm` after the commit and
+> **Disarm on both exits:** run `python3 "<ABS_CTXCHECK>" --disarm` after the commit and
 > plan update when the phase completes, or just before reporting when you stop for a
 > continuation.

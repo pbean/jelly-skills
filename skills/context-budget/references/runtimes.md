@@ -87,9 +87,9 @@ status-line command. Running `ctxcheck install-statusline <runtime>` once
 makes that command also save a snapshot that `ctxcheck` can read:
 
 ```bash
-python3 <context-budget dir>/scripts/ctxcheck install-statusline antigravity --dry-run   # show the diff
-python3 <context-budget dir>/scripts/ctxcheck install-statusline antigravity
-python3 <context-budget dir>/scripts/ctxcheck install-statusline antigravity --uninstall
+python3 "<context-budget dir>/scripts/ctxcheck" install-statusline antigravity --dry-run   # show the diff
+python3 "<context-budget dir>/scripts/ctxcheck" install-statusline antigravity
+python3 "<context-budget dir>/scripts/ctxcheck" install-statusline antigravity --uninstall
 ```
 
 **What changes.** Exactly one setting changes, `statusLine.command`, in one

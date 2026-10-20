@@ -30,7 +30,7 @@ still running.
 Arm before your first edit, when your phase file says to:
 
 ```bash
-python3 <context-budget dir>/scripts/ctxcheck --arm --role worker --label "session N of /abs/plan.md"
+python3 "<context-budget dir>/scripts/ctxcheck" --arm --role worker --label "session N of /abs/plan.md"
 ```
 
 Add `--gate P` only when the phase file gives one. Then check with a plain
