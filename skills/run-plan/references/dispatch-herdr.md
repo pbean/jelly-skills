@@ -367,7 +367,9 @@ worker to number) into both paragraphs.
 ### 8b. Completion paragraph (closes every phase file)
 
 > When finished, write `<result path>` **atomically**: write a temp file in the same
-> directory, then `mv` it onto that name. Make `PHASE-STATUS: complete` its **first line**,
+> directory, then rename it onto that name with
+> `python3 -c "import os, sys; os.replace(sys.argv[1], sys.argv[2])" <temp> <result path>`
+> (`py -3` or `python` where `python3` isn't on PATH), which works from any shell. Make `PHASE-STATUS: complete` its **first line**,
 > then a three-sentence summary: what changed (with the commit SHA), what you found (with
 > test results), and what remains or what the next session must know. Then end your turn.
 >
