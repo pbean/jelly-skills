@@ -11,6 +11,7 @@ that loads `SKILL.md` skills, and they install with the
 The collection grows as I write new skills and settle on them for daily use.
 
 > **Why "jelly"?** My last name is Bean, and my kid's nickname is Jellybean.
+> The name is inspired by them.
 
 ## Skills
 
