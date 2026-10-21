@@ -181,10 +181,12 @@ The same `smoke-plan.md` drives run-plan's herdr backend
 real sessions: three coordinators and four workers. If you ran the Orca variant first, do
 its clean-up (section 5) first: both variants use the same plan copy and runs dir.
 
-**Neither half of the herdr backend has been live-validated.** The worker lifecycle
-(§§3-7) and coordinator succession (§9) were written against herdr 0.9.5's group listings
-and docs, with `HERDR_ENV` unset, so this run is their first contact with a real server.
-Watch for the checks at the end of this section.
+The herdr backend was first live-validated by this run on 2026-10-21 (herdr 0.9.5, fish
+4.9, Claude Code 2.1.306). That run found two pieces of drift, both since fixed in
+`dispatch-herdr.md`: a fresh tab's shell is briefly busy, so `agent start` answered
+`agent_pane_busy` (§3 now waits for the shell to settle), and `pane current` answers
+`type: "pane_current"`, not `pane_info` (§9). Re-run it after a herdr upgrade and watch
+for the checks at the end of this section.
 
 ### Set up
 
@@ -246,18 +248,20 @@ herdr tab list
 
 ### First-run checks
 
-Because nothing above has been validated live, confirm these and report any that differ.
-Each difference is drift in `dispatch-herdr.md`:
+These held on 2026-10-21. After a herdr upgrade, confirm them again and report any that
+differ. Each difference is drift in `dispatch-herdr.md`:
 
 - The delivery `herdr agent prompt … --wait --until working --until blocked` returns with
   `agent_status: "working"` (§5), not `agent_prompt_stalled`.
 - `herdr tab create` answers `.result.tab.tab_id` and `.result.root_pane.pane_id`, and
   `herdr agent start` answers `type: "agent_started"` with `.result.agent` and
-  `.result.argv` (§3). `run-state.json`'s legs hold those ids.
+  `.result.argv` (§3). `run-state.json`'s legs hold those ids. `run-log.md` shows no
+  `agent_pane_busy`, or only a re-opened tab that did not count as a failed attempt.
 - After a tab closes, `herdr agent get <that attempt's name>` answers `agent_not_found`
   (§7).
 - At the first handoff, the successor tab opens, `herdr pane current --current` returns
-  `.result.pane.pane_id` (§9's probe), and the predecessor's takeover poll exits 0 rather
+  `type: "pane_current"` with `.result.pane.pane_id` (§9's probe), and the predecessor's
+  takeover poll exits 0 rather
   than running out its 600 s.
 
 ### Clean up

@@ -5,10 +5,11 @@ SKILL.md cites (see SKILL.md "Dispatch backends").
 
 It documents the loop **shape** and the pitfalls, for herdr 0.9.5 and later. The command
 lines below were checked against herdr 0.9.5's group listings and its
-`agent-automation.mdx`, `socket-api.mdx` and `cli-reference.mdx` docs on 2026-10-19. They
-are **not live-validated**: the JSON shapes below come from those docs and the 0.9.5
-source, not from an observed run. Flags rot across releases, so the listings you print in
-§0 win wherever the two disagree. Commands are written `herdr <group> <verb> …`.
+`agent-automation.mdx`, `socket-api.mdx` and `cli-reference.mdx` docs on 2026-10-19, and
+live-validated by the smoke run in `tests/e2e/README.md` §6 on 2026-10-21 (herdr 0.9.5,
+Claude Code 2.1.306): the worker lifecycle, a continuation leg and two coordinator
+handoffs. Flags rot across releases, so the listings you print in §0 win wherever the two
+disagree. Commands are written `herdr <group> <verb> …`.
 
 **What herdr lacks, compared with Orca.** herdr is a terminal multiplexer that recognizes
 agents in its panes and tracks their lifecycle state (`idle | working | blocked | done |
@@ -131,16 +132,24 @@ tabs there. Don't use `$HERDR_WORKSPACE_ID`: a process keeps its launch-time val
 its pane is moved to another workspace, and that workspace may since have been closed.
 `--current` still resolves after a move, because herdr keeps the old pane id as an alias.
 Record
-`.result.tab.tab_id` and `.result.root_pane.pane_id` at once. Then start the agent in that
-pane:
+`.result.tab.tab_id` and `.result.root_pane.pane_id` at once.
+
+**Wait for the shell to settle.** A fresh tab's root pane is not at an idle prompt yet: its
+shell forks children while it initializes, and `agent start` against it answers
+`agent_pane_busy`. A first look proves nothing, since the shell may not have forked yet.
+Poll `herdr pane process-info --pane <pane_id>` about once a second until
+`.result.process_info.foreground_processes` has held exactly one entry (the shell) for
+three polls in a row, for at most 60 s. (Seen live on herdr 0.9.5 with fish 4.9: 1, then
+2-3 for a few seconds, then 1.) If it never settles, treat it as the `agent_pane_busy`
+case below. Then start the agent in that pane:
 
 ```
 herdr agent start <name> --kind <run-config.agent> --pane <pane_id> --timeout 120000 -- <args>
 ```
 
 - `--kind` is run-config's `agent`; `herdr agent` lists the kinds. The pane must be at an
-  idle shell prompt, which a fresh tab's root pane is. `--timeout` must be over 3000 and at
-  most 300000 ms.
+  idle shell prompt, which the settle wait above checks. `--timeout` must be over 3000
+  and at most 300000 ms.
 - `<args>` is the model and effort for the kind, then `agent_args` verbatim when
   run-config sets it. If `agent_args` already sets the model or effort, leave the table's
   flag out. Re-check the table against the agent's own `--help` in §0's pass:
@@ -171,7 +180,14 @@ herdr agent start <name> --kind <run-config.agent> --pane <pane_id> --timeout 12
   went through, so treat it as the lost-receipt case below. Any other tab means another
   run holds the name: never prompt or close that agent. Clean up this attempt (below) and
   mark the phase `[blocked]` with the clash.
-- **A timeout or any other error** (`agent_pane_busy`, `unsupported_agent_kind`,
+- **`agent_pane_busy`** (or a settle wait that ran out): the shell was still busy, and no
+  agent ran. It is not a failed attempt. Confirm that with `herdr agent get <name>`
+  (`agent_not_found`), clean up the tab (below), confirm it dead, and open a fresh tab
+  for the **same** attempt: same name, same paths, new `tab_id` and `pane_id` in the leg
+  record. Do this at most twice per attempt. After that, it counts as a failed attempt
+  (§7). Log each re-open in `run-log.md`. A live run had a stuck tab clear up in a fresh
+  one.
+- **A timeout or any other error** (`unsupported_agent_kind`,
   `invalid_agent_argument`, …): read once (`herdr agent read <name> --source visible`;
   it errors if no agent came up), clean up the attempt (below), and count a failed
   attempt (§7) only once the start is **confirmed dead** (below). An error a fix to
@@ -405,12 +421,13 @@ worker to number) into both paragraphs.
 The backend half of `coordinator-handoff.md`: that file says when and why, this section
 says which commands. Checked against herdr 0.9.5's group listings, `socket-api.mdx` and
 `agent-automation.mdx` on 2026-10-19, and against `ctxcheck launch-command`'s runtime
-list. **Not live-validated**, like §§3-6. herdr has no run to rebind and no fencing, so
-the takeover is confirmed by `run-state.json` alone (§1's `owner` is the convention that
-stands in for a fence).
+list, and live-validated on 2026-10-21 (two handoffs). herdr has no run to rebind and no
+fencing, so the takeover is confirmed by `run-state.json` alone (§1's `owner` is the
+convention that stands in for a fence).
 
 **Am I inside a herdr pane?** (handoff step 1.) Yes when `HERDR_ENV` is `1`, `$HERDR_PANE_ID`
-is non-empty, **and** this answers `type: "pane_info"`:
+is non-empty, **and** this answers `type: "pane_current"` with a `.result.pane` object
+(herdr 0.9.5, observed live; its docs said `pane_info`):
 
 ```
 herdr pane current --current
