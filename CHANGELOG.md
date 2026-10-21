@@ -10,8 +10,8 @@ and each skill is versioned independently in its `SKILL.md` metadata.
 ### run-plan 1.4.0
 
 A second dispatch backend, herdr, alongside Orca. Checked against herdr 0.9.5's
-group listings and docs, but not yet live-validated: the manual smoke test in
-`tests/e2e/README.md` (section 6) is its first real run.
+group listings and docs, and live-validated on 2026-10-21 by the manual smoke
+test in `tests/e2e/README.md` (section 6).
 
 #### Added
 
